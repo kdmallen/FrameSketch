@@ -57,6 +57,7 @@ export function newLayer(name = "Sketch 01") {
     opacity: 1,
     visible: true,
     locked: false,
+    overlay: false,
     frames: {},
   };
 }
@@ -117,6 +118,7 @@ export function validateProject(p) {
       !/^[a-zA-Z0-9-]+$/.test(l.id) ||
       ids.has(l.id) ||
       typeof l.visible !== "boolean" ||
+      (l.overlay !== undefined && typeof l.overlay !== "boolean") ||
       typeof l.locked !== "boolean"
     )
       throw new Error("Invalid layer settings.");

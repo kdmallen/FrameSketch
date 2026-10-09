@@ -614,3 +614,89 @@ test("swipe deletes a sketch layer and clears the final layer", async ({ browser
   await expect(page.locator('#annotated-count')).toHaveText('0');
   await context.close();
 });
+
+test("sketch onion colors and opacity fade by distance; overlay skips ghosts and persists", async ({ page }) => {
+  await sample(page);
+  const r = await page.locator('#drawing-canvas').boundingBox();
+  const line = async y => {
+    await page.mouse.move(r.x + r.width * 0.3, r.y + r.height * y);
+    await page.mouse.down(); await page.mouse.move(r.x + r.width * 0.7, r.y + r.height * y, { steps: 6 }); await page.mouse.up();
+  };
+  await line(0.25); await page.locator('#next').click(); await line(0.65); await page.locator('#next').click();
+  await page.locator('#onion-settings').click();
+  await page.locator('[data-onion="sketch"] [data-setting="enabled"]').check();
+  await page.locator('[data-onion="sketch"] [data-setting="next"]').fill('0');
+  await page.locator('[data-onion="sketch"] [data-setting="next"]').dispatchEvent('input');
+  await page.locator('#modal-close').click();
+  const alpha = y => page.locator('#drawing-canvas').evaluate((c, y) => c.getContext('2d').getImageData(Math.floor(c.width * 0.5), Math.floor(c.height * y), 1, 1).data[3], y);
+  expect(await alpha(0.25)).toBeGreaterThan(40); expect(await alpha(0.25)).toBeLessThan(90);
+  expect(await alpha(0.65)).toBeGreaterThan(100); expect(await alpha(0.65)).toBeLessThan(150);
+  await page.locator('#onion-settings').click();
+  await page.locator('[data-onion="sketch"] [data-setting="opacity"]').fill('100');
+  await page.locator('[data-onion="sketch"] [data-setting="opacity"]').dispatchEvent('input');
+  await page.locator('[data-onion="sketch"] [data-setting="previousColor"]').fill('#00ff00');
+  await page.locator('[data-onion="sketch"] [data-setting="previousColor"]').dispatchEvent('input');
+  await page.locator('#modal-close').click();
+  expect(await alpha(0.25)).toBeGreaterThan(100); expect(await alpha(0.65)).toBe(255);
+  expect(await page.locator('#drawing-canvas').evaluate(c => Array.from(c.getContext('2d').getImageData(Math.floor(c.width * 0.5), Math.floor(c.height * 0.65), 1, 1).data).slice(0, 3))).toEqual([0, 255, 0]);
+  await page.locator('.layer-swipe').evaluate(el => el.classList.add('revealed'));
+  await page.locator('.layer-overlay-action').click();
+  expect(await alpha(0.25)).toBe(255); expect(await alpha(0.65)).toBe(255);
+  await page.locator('#back-home').click(); await page.locator('[data-open]').first().click();
+  await expect(page.locator('#viewer-state')).toHaveText('READY TO REVIEW');
+  expect(await alpha(0.25)).toBe(255);
+  await page.locator('.layer-swipe').evaluate(el => el.classList.add('revealed'));
+  await page.locator('.layer-overlay-action').click();
+  expect(await alpha(0.25)).toBeLessThan(160);
+});
+
+test("video onion frames decode and video visibility leaves sketch canvas visible", async ({ page }) => {
+  await sample(page);
+  await page.locator('#next').click(); await page.locator('#next').click(); await page.locator('#next').click();
+  await page.locator('#onion-settings').click();
+  await page.locator('[data-onion="video"] [data-setting="enabled"]').check();
+  await page.locator('#modal-close').click();
+  await expect.poll(() => page.locator('#video-onions').evaluate(c => c.getContext('2d').getImageData(10, 10, 1, 1).data[3])).toBeGreaterThan(0);
+  await page.locator('#video-visible').click();
+  await expect(page.locator('#video')).toHaveCSS('visibility', 'hidden');
+  await expect(page.locator('#drawing-canvas')).toBeVisible();
+  expect(await page.locator('#video-onions').evaluate(c => c.getContext('2d').getImageData(10, 10, 1, 1).data[3])).toBe(0);
+  await page.locator('#video-visible').click();
+  await expect(page.locator('#video')).toHaveCSS('visibility', 'visible');
+});
+
+test("staggered two-finger taps undo without leaving dots", async ({ browser }) => {
+  const context = await browser.newContext({ hasTouch: true, viewport: { width: 1180, height: 820 } });
+  const page = await context.newPage(); await sample(page); await draw(page);
+  const r = await page.locator('#drawing-canvas').boundingBox();
+  const session = await context.newCDPSession(page);
+  for (const fraction of [0.3, 0.6]) {
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ id: 0, x: Math.round(r.x + r.width * fraction), y: Math.round(r.y + r.height * 0.5) }] });
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  }
+  await expect(page.locator('#annotated-count')).toHaveText('0');
+  await page.waitForTimeout(250);
+  await expect(page.locator('#annotated-count')).toHaveText('0');
+  await context.close();
+});
+
+test("live drawing reuses cached canvases through a long stroke", async ({ page }) => {
+  await sample(page);
+  await draw(page);
+  const r = await page.locator('#drawing-canvas').boundingBox();
+  await page.mouse.move(r.x + r.width * 0.2, r.y + r.height * 0.8);
+  await page.mouse.down();
+  await page.evaluate(() => {
+    window.liveCanvasAllocations = 0;
+    const original = document.createElement.bind(document);
+    document.createElement = (tag, ...args) => {
+      if (tag === 'canvas') window.liveCanvasAllocations++;
+      return original(tag, ...args);
+    };
+  });
+  await page.mouse.move(r.x + r.width * 0.8, r.y + r.height * 0.8, { steps: 60 });
+  await page.waitForTimeout(50);
+  expect(await page.evaluate(() => window.liveCanvasAllocations)).toBeLessThanOrEqual(1);
+  await page.mouse.up();
+  await expect(page.locator('#undo')).toBeEnabled();
+});

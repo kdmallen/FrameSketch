@@ -36,6 +36,16 @@ If something fails, note what you clicked and what happened. A screenshot of the
 
 Keyboard: Space play/pause, arrows step, A/B range, M highlight, D brush, F eraser, W move sphere, E rotate sphere, R scale sphere, T free transform/skew, Q or Escape hide gizmo, S key sphere, Ctrl/Command Z undo, Ctrl/Command Shift Z redo.
 
+## Onion skin, video visibility, and layer overlays
+
+**Onion skin** opens separate settings for sketches and video frames. Each has an enable toggle, previous/next frame counts (0–12), previous/next colors, and opacity. A frame's opacity is the selected opacity divided by its distance: at 50%, distances 1/2/3 use 50%/25%/16.7%. Sketch onion skins respect layer opacity, visibility and shared frame groups. Ghosts are reference images; edits belong to the current frame.
+
+**Hide video** hides the footage and video ghosts while leaving sketches visible; **Show video** restores it. The timeline remains available for selecting frames. Video onion frames decode separately and show while paused, so playback and live sketching do not continuously decode reference images. They use reduced-resolution previews to limit iPad memory use.
+
+Swipe a sketch layer left and tap **Overlay** to show that layer's drawings from all frames together. Swipe again and tap **Overlay off** to return to normal frame-specific display. Overlay layers retain all frame assignments and skip sketch onion skins. These settings save with the project and its backup.
+
+Two-finger tap on the canvas undoes a sketch. A short grace period prevents a quick staggered gesture from saving unwanted dots. Drawing uses cached saved images and incrementally renders the live stroke once per screen refresh. Physical iPad responsiveness still needs device testing.
+
 ## Frame groups, clearing, and guide sphere
 
 - **Clear frame**, beside Sketch layers, clears drawings on every layer for the current frame, including hidden and locked layers, after confirmation. In a group it clears the shared drawing. It does not remove the tracked sphere or its keys.

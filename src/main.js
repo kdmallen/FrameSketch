@@ -1,3 +1,4 @@
+import { onionFrames, onionSettings } from "./onion.js";
 import {
   sourceFrame,
   logicalFrame,
@@ -138,7 +139,7 @@ function persist(immediate = false) {
   project.updated = Date.now();
   project.fps = fps;
   clearTimeout(saveTimer);
-  if (scrubActive && !immediate) return;
+  if ((scrubActive || currentStroke) && !immediate) return;
   $("#save-status") && ($("#save-status").textContent = "Saving…");
   const run = () => {
     const p = structuredClone(project);
@@ -163,6 +164,9 @@ function persist(immediate = false) {
   saveTimer = setTimeout(run, 350);
 }
 function cleanup() {
+  cancelDrawingTimers?.(); cancelDrawingTimers = null;
+  resetVideoOnions();
+  sketchImages.clear(); liveSketch = null;
   scrubActive = false;
   reviewTools?.destroy();
   reviewTools = null;
@@ -582,6 +586,7 @@ function renderEditor() {
     },
   });
   mountVideoEdits();
+  mountOnionControls();
   setupDrawing();
   renderLayers();
   setupTimeline();
@@ -821,7 +826,7 @@ function resizeCanvas() {
   stage.style.width = `${width}px`;
   stage.style.height = `${height}px`;
   const canvas = $("#drawing-canvas");
-  canvas.width = Math.min(w, 2560);
+  canvas.width = Math.min(w, matchMedia("(pointer: coarse)").matches ? 1280 : 2560);
   canvas.height = (canvas.width * h) / w;
   draw();
 }
@@ -879,7 +884,7 @@ function pause() {
     $("#play").innerHTML = icon("play");
     $("#play").setAttribute("aria-label", "Play / pause (Space)");
   }
-  if (project) persist();
+  if (project) { persist(); refreshVideoOnions(); }
 }
 async function togglePlay() {
   if (!mediaLoaded) return;
@@ -1383,7 +1388,7 @@ function renderLayers() {
   $("#layer-list").innerHTML = project.layers
     .map(
       (l, i) =>
-        `<div class="layer-swipe"><button class="layer-swipe-action" data-remove-layer="${l.id}" aria-label="${project.layers.length === 1 ? "Clear" : "Delete"} ${esc(l.name)}">${project.layers.length === 1 ? "Clear" : "Delete"}</button><div class="layer-row ${l.id === activeLayer ? "active" : ""}" data-layer="${l.id}" tabindex="0" role="button" aria-label="Select ${esc(l.name)}"><div class="layer-thumbnail">${icon("brush", 18)}</div><div class="layer-label"><button data-rename="${l.id}" title="Rename layer">${esc(l.name)}</button><small data-count="${l.id}">${Object.keys(l.frames).length} frames</small></div><button class="mini-button" data-visible="${l.id}" title="${l.visible ? "Hide" : "Show"} layer" aria-label="${l.visible ? "Hide" : "Show"} ${esc(l.name)}">${icon(l.visible ? "eye" : "hidden", 17)}</button><button class="mini-button ${l.locked ? "locked" : ""}" data-lock="${l.id}" title="${l.locked ? "Unlock" : "Lock"} layer" aria-label="${l.locked ? "Unlock" : "Lock"} ${esc(l.name)}">${icon(l.locked ? "lock" : "unlock", 16)}</button></div></div>`,
+        `<div class="layer-swipe"><button class="layer-overlay-action" data-overlay-layer="${l.id}" aria-pressed="${!!l.overlay}">${l.overlay ? "Overlay off" : "Overlay"}</button><button class="layer-swipe-action" data-remove-layer="${l.id}" aria-label="${project.layers.length === 1 ? "Clear" : "Delete"} ${esc(l.name)}">${project.layers.length === 1 ? "Clear" : "Delete"}</button><div class="layer-row ${l.id === activeLayer ? "active" : ""}" data-layer="${l.id}" tabindex="0" role="button" aria-label="Select ${esc(l.name)}"><div class="layer-thumbnail">${icon("brush", 18)}</div><div class="layer-label"><button data-rename="${l.id}" title="Rename layer">${esc(l.name)}</button><small data-count="${l.id}">${Object.keys(l.frames).length} frames${l.overlay ? " · Overlay" : ""}</small></div><button class="mini-button" data-visible="${l.id}" title="${l.visible ? "Hide" : "Show"} layer" aria-label="${l.visible ? "Hide" : "Show"} ${esc(l.name)}">${icon(l.visible ? "eye" : "hidden", 17)}</button><button class="mini-button ${l.locked ? "locked" : ""}" data-lock="${l.id}" title="${l.locked ? "Unlock" : "Lock"} layer" aria-label="${l.locked ? "Unlock" : "Lock"} ${esc(l.name)}">${icon(l.locked ? "lock" : "unlock", 16)}</button></div></div>`,
     )
     .join("");
   $("#layer-settings").innerHTML = l
@@ -1405,6 +1410,8 @@ function renderLayers() {
       const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
       if (Math.abs(dy) > 24 && Math.abs(dy) > Math.abs(dx)) { swipe = null; return; }
       if (Math.abs(dx) > 24) {
+        e.preventDefault();
+        if (e.isTrusted && !row.hasPointerCapture(e.pointerId)) row.setPointerCapture(e.pointerId);
         swipedAt = performance.now();
         row.parentElement.classList.toggle("revealed", dx < 0);
       }
@@ -1455,6 +1462,19 @@ function renderLayers() {
     $("#selection-status").textContent =
       `${l.name}${l.locked ? " · Locked" : ""}${!l.visible ? " · Hidden" : ""}`;
   }
+  document.querySelectorAll("[data-overlay-layer]").forEach(button => {
+    const toggle = () => {
+      const target = project.layers.find(item => item.id === button.dataset.overlayLayer);
+      target.overlay = !target.overlay;
+      renderLayers(); draw(); persist();
+    };
+    let touched = -Infinity;
+    button.onpointerup = e => {
+      if (e.pointerType !== "touch") return;
+      e.preventDefault(); touched = performance.now(); toggle();
+    };
+    button.onclick = () => { if (performance.now() - touched > 800) toggle(); };
+  });
   document.querySelectorAll("[data-remove-layer]").forEach(button => {
     let touchStart = null;
     let lastTouch = -Infinity;
@@ -1498,7 +1518,7 @@ function updateLayerFrameCounts() {
   project?.layers.forEach((l) => {
     const el = document.querySelector(`[data-count="${l.id}"]`);
     if (el)
-      el.textContent = `${Object.keys(l.frames).filter((k) => l.frames[k].length).length} frames`;
+      el.textContent = `${Object.keys(l.frames).filter((k) => l.frames[k].length).length} frames${l.overlay ? " · Overlay" : ""}`;
   });
 }
 function renameLayer(id) {
@@ -1528,6 +1548,7 @@ function renameProject() {
     persist();
   };
 }
+let cancelDrawingTimers = null;
 function setupDrawing() {
   const canvas = $("#drawing-canvas");
   const viewer = $("#viewer");
@@ -1541,14 +1562,21 @@ function setupDrawing() {
       e.pointerType === "pen" ? Math.max(0.15, e.pressure) : 0.5,
     ];
   };
+  let drawingRaf = 0;
   const fingers = new Map();
   let twoFinger = null;
   let touchSnapshot = null;
+  let pendingTap = null;
+  const cancelPendingTap = () => { if (pendingTap) clearTimeout(pendingTap.timer); pendingTap = null; };
+  cancelDrawingTimers = () => { cancelPendingTap(); cancelAnimationFrame(drawingRaf); };
   canvas.addEventListener("pointerdown", (e) => {
     if (e.pointerType !== "touch") return;
+    const staggered = pendingTap && performance.now() - pendingTap.ended < 180 && Math.hypot(e.clientX - pendingTap.x, e.clientY - pendingTap.y) > 24;
+    if (pendingTap && !staggered) pendingTap.commit();
     if (!fingers.size) touchSnapshot = structuredClone(project.spheres);
     fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (fingers.size === 2) {
+    if (fingers.size === 2 || staggered) {
+      cancelPendingTap();
       twoFinger = { started: performance.now(), moved: false };
       currentStroke = null;
       pointerId = null;
@@ -1572,7 +1600,7 @@ function setupDrawing() {
     if (e.type === "pointercancel") twoFinger.moved = true;
     e.preventDefault(); e.stopImmediatePropagation();
     if (!fingers.size) {
-      const tap = !twoFinger.moved && performance.now() - twoFinger.started < 500;
+      const tap = !twoFinger.moved && performance.now() - twoFinger.started < 650;
       twoFinger = null;
       if (tap) undoStroke();
       reviewTools?.update();
@@ -1606,29 +1634,35 @@ function setupDrawing() {
       points: [point(e)],
       id: uid(),
     };
+    clearTimeout(saveTimer);
     draw();
   };
   canvas.onpointermove = (e) => {
     if (reviewTools?.pointerMove(e, canvas)) return;
     if (!currentStroke || pointerId !== e.pointerId) return;
-    const events = e.getCoalescedEvents?.() || [e];
+    const coalesced = e.getCoalescedEvents?.();
+    const events = coalesced?.length ? coalesced : [e];
     events.forEach((event) => currentStroke.points.push(point(event)));
-    draw();
+    if (!drawingRaf) drawingRaf = requestAnimationFrame(() => { drawingRaf = 0; draw(); });
   };
   const finish = (e) => {
     if (reviewTools?.pointerUp(e)) return;
     if (!currentStroke || pointerId !== e.pointerId) return;
-    const l = layer();
-    const stroke = currentStroke;
-    (l.frames[drawingFrame(project, frame)] ||= []).push(stroke);
-    undo.push({ layer: l.id, frame: drawingFrame(project, frame), stroke });
-    redo = [];
-    currentStroke = null;
-    pointerId = null;
-    updateHistory();
-    draw();
-    updateFrame();
-    persist();
+    cancelAnimationFrame(drawingRaf); drawingRaf = 0;
+    const l = layer(), stroke = currentStroke, strokeFrame = drawingFrame(project, frame);
+    currentStroke = null; pointerId = null;
+    if (e.type === "pointercancel") { draw(); return; }
+    const commit = () => {
+      cancelPendingTap();
+      (l.frames[strokeFrame] ||= []).push(stroke);
+      undo.push({ layer: l.id, frame: strokeFrame, stroke }); redo = [];
+      updateHistory(); draw(); updateFrame(); persist();
+    };
+    const first = stroke.points[0], last = stroke.points.at(-1);
+    if (e.pointerType === "touch" && Math.hypot(last[0] - first[0], last[1] - first[1]) < 0.01) {
+      pendingTap = { x: e.clientX, y: e.clientY, ended: performance.now(), commit, timer: setTimeout(commit, 180) };
+      draw();
+    } else commit();
   };
   canvas.onpointerup = finish;
   canvas.onpointercancel = finish;
@@ -1663,28 +1697,57 @@ function paintStroke(ctx, s, w, h) {
     ctx.stroke();
   }
 }
-const layerCanvas = document.createElement("canvas");
+const sketchImages = new Map();
+let liveSketch = null;
 function draw() {
-  const c = $("#drawing-canvas");
-  if (!c || !project) return;
-  const ctx = c.getContext("2d");
-  ctx.clearRect(0, 0, c.width, c.height);
-  layerCanvas.width = c.width;
-  layerCanvas.height = c.height;
-  const lctx = layerCanvas.getContext("2d");
-  [...project.layers].reverse().forEach((l) => {
-    if (!l.visible) return;
-    lctx.clearRect(0, 0, c.width, c.height);
-    (l.frames[drawingFrame(project, frame)] || []).forEach((s) =>
-      paintStroke(lctx, s, c.width, c.height),
-    );
-    if (l.id === activeLayer && currentStroke)
-      paintStroke(lctx, currentStroke, c.width, c.height);
+  const canvas = $("#drawing-canvas");
+  if (!canvas || !project) return;
+  const ctx = canvas.getContext("2d"), w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  const createImage = () => { const image = document.createElement("canvas"); image.width = w; image.height = h; return image; };
+  for (const l of [...project.layers].reverse()) {
+    if (!l.visible) continue;
+    const signature = currentStroke && sketchImages.get(l.id)?.frame === frame ? sketchImages.get(l.id).signature : JSON.stringify([project.id, frame, w, h, l.overlay, project.sketchOnion,
+      Object.entries(l.frames).map(([n, strokes]) => [n, strokes.map(s => s.id)])]);
+    let cached = sketchImages.get(l.id);
+    if (!cached || cached.signature !== signature) {
+      const references = l.overlay ? [] : onionFrames(frame, frameCount, project.sketchOnion, n => drawingFrame(project, n));
+      const image = createImage(), ghosts = references.length ? createImage() : null;
+      const imageCtx = image.getContext("2d"), ghostCtx = ghosts?.getContext("2d");
+      for (const ghost of references) {
+        const mask = createImage(), maskCtx = mask.getContext("2d");
+        (l.frames[ghost.frame] || []).forEach(stroke => paintStroke(maskCtx, stroke, w, h));
+        maskCtx.globalCompositeOperation = "source-in"; maskCtx.fillStyle = ghost.color; maskCtx.fillRect(0, 0, w, h);
+        ghostCtx.globalAlpha = ghost.opacity; ghostCtx.drawImage(mask, 0, 0); mask.width = 0;
+      }
+      if (l.overlay) {
+        for (const n of Object.keys(l.frames).sort((a,b) => +a - +b)) {
+          const frameImage = createImage(), frameCtx = frameImage.getContext("2d");
+          l.frames[n].forEach(stroke => paintStroke(frameCtx, stroke, w, h));
+          imageCtx.drawImage(frameImage, 0, 0); frameImage.width = 0;
+        }
+      } else (l.frames[drawingFrame(project, frame)] || []).forEach(stroke => paintStroke(imageCtx, stroke, w, h));
+      cached = { signature, frame, image, ghosts }; sketchImages.set(l.id, cached);
+    }
     ctx.globalAlpha = l.opacity;
-    ctx.drawImage(layerCanvas, 0, 0);
-  });
+    if (cached.ghosts) ctx.drawImage(cached.ghosts, 0, 0);
+    let image = cached.image;
+    if (l.id === activeLayer && currentStroke) {
+      if (!liveSketch || liveSketch.id !== currentStroke.id || liveSketch.signature !== signature) {
+        liveSketch = { id: currentStroke.id, signature, image: createImage(), points: 0 };
+        liveSketch.image.getContext("2d").drawImage(cached.image, 0, 0);
+      }
+      if (currentStroke.points.length > liveSketch.points) {
+        paintStroke(liveSketch.image.getContext("2d"), { ...currentStroke, points: currentStroke.points.slice(Math.max(0, liveSketch.points - 1)) }, w, h);
+        liveSketch.points = currentStroke.points.length;
+      }
+      image = liveSketch.image;
+    }
+    ctx.drawImage(image, 0, 0);
+  }
   ctx.globalAlpha = 1;
-  reviewTools?.draw(ctx, c.width, c.height);
+  reviewTools?.draw(ctx, w, h);
+  if (!currentStroke) refreshVideoOnions();
 }
 function undoStroke() {
   const action = undo.pop();
@@ -2011,7 +2074,7 @@ async function exportFrame() {
   c.height = h;
   try {
     const ctx = c.getContext("2d");
-    ctx.drawImage(gifCanvas || video, 0, 0, w, h);
+    if (!project.videoHidden) ctx.drawImage(gifCanvas || video, 0, 0, w, h);
     const selected = reviewTools?.sphereMode;
     if (reviewTools) reviewTools.sphereMode = false;
     draw();
@@ -2095,4 +2158,109 @@ document.addEventListener("visibilitychange", () => {
     persist(true);
   }
 });
+let onionDecoder = null, onionTimer = null, onionGeneration = 0, onionSignature = '', onionQueue = Promise.resolve();
+const videoGhosts = new Map();
+let videoGhostIdentity = '';
+function resetVideoOnions() {
+  clearTimeout(onionTimer); onionQueue = Promise.resolve(); onionGeneration++; onionSignature = ''; videoGhosts.clear(); videoGhostIdentity = '';
+  onionDecoder?.removeAttribute('src'); onionDecoder?.load(); onionDecoder = null;
+}
+function mountOnionControls() {
+  const actions = $('.header-actions');
+  const button = document.createElement('button'); button.id = 'onion-settings'; button.className = 'secondary'; button.innerHTML = `${icon('film', 16)} Onion skin`; button.setAttribute('aria-label', 'Onion skin settings'); button.title = 'Onion skin settings';
+  button.onclick = onionDialog; actions.prepend(button);
+  const visibility = document.createElement('button'); visibility.id = 'video-visible'; visibility.className = 'secondary';
+  const update = () => { visibility.innerHTML = `${icon(project.videoHidden ? 'hidden' : 'eye', 16)} ${project.videoHidden ? 'Show video' : 'Hide video'}`; visibility.setAttribute('aria-label', project.videoHidden ? 'Show video' : 'Hide video'); visibility.title = project.videoHidden ? 'Show video' : 'Hide video'; visibility.setAttribute('aria-pressed', String(!project.videoHidden)); draw(); };
+  visibility.onclick = () => { project.videoHidden = !project.videoHidden; update(); persist(); };
+  actions.prepend(visibility);
+  const ghosts = document.createElement('canvas'); ghosts.id = 'video-onions'; $('.media-stage').insertBefore(ghosts, $('#drawing-canvas'));
+  update();
+}
+function onionDialog() {
+  pause();
+  const el = modal(`<h2>Onion skin</h2><p>Previous and next frames fade with distance. Overlay layers skip sketch onion skinning. Video ghosts appear while paused.</p>${['sketch', 'video'].map(kind => {
+    const s = onionSettings(project[kind + 'Onion']);
+    return `<fieldset class="onion-settings" data-onion="${kind}"><legend>${kind === 'sketch' ? 'Sketches' : 'Video frames'}</legend><label class="onion-toggle"><input type="checkbox" data-setting="enabled" ${s.enabled ? 'checked' : ''}/> Enable ${kind} onion skin</label><label>Opacity <output>${Math.round(s.opacity * 100)}%</output><input data-setting="opacity" aria-label="${kind} onion opacity" type="range" min="0" max="100" value="${Math.round(s.opacity * 100)}"/></label>${['previous', 'next'].map(side => `<div class="onion-side"><label>${side === 'previous' ? 'Previous' : 'Next'} frames<input data-setting="${side}" aria-label="${kind} ${side} frames" type="number" min="0" max="12" value="${s[side]}"/></label><label>Color<input data-setting="${side}Color" aria-label="${kind} ${side} color" type="color" value="${s[side + 'Color']}"/></label></div>`).join('')}</fieldset>`;
+  }).join('')}`, true);
+  el.querySelectorAll('[data-setting]').forEach(input => {
+    input.oninput = () => {
+      const kind = input.closest('[data-onion]').dataset.onion, key = input.dataset.setting;
+      const settings = onionSettings(project[kind + 'Onion']);
+      settings[key] = input.type === 'checkbox' ? input.checked : input.type === 'color' ? input.value : key === 'opacity' ? +input.value / 100 : +input.value;
+      project[kind + 'Onion'] = onionSettings(settings);
+      input.closest('fieldset').querySelector('output').textContent = Math.round(project[kind + 'Onion'].opacity * 100) + '%';
+      onionSignature = ''; draw(); persist();
+    };
+  });
+}
+function renderVideoGhosts() {
+  const canvas = $('#video-onions');
+  if (!canvas || !project) return;
+  const drawing = $('#drawing-canvas');
+  if (canvas.width !== drawing.width) canvas.width = drawing.width;
+  if (canvas.height !== drawing.height) canvas.height = drawing.height;
+  const crop = project.crop || { x: 0, y: 0, w: 1, h: 1 };
+  Object.assign(canvas.style, { width: `${100 / crop.w}%`, height: `${100 / crop.h}%`, left: `${-100 * crop.x / crop.w}%`, top: `${-100 * crop.y / crop.h}%` });
+  const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (project.videoHidden || playing) return;
+  for (const ghost of onionFrames(frame, frameCount, project.videoOnion)) {
+    const cached = videoGhosts.get(sourceFrame(project.clipRanges, ghost.frame));
+    if (!cached) continue;
+    const tinted = document.createElement('canvas'); tinted.width = cached.width; tinted.height = cached.height;
+    const tint = tinted.getContext('2d'); tint.drawImage(cached, 0, 0); tint.globalCompositeOperation = 'multiply'; tint.fillStyle = ghost.color; tint.fillRect(0, 0, tinted.width, tinted.height);
+    ctx.globalAlpha = ghost.opacity; ctx.drawImage(tinted, 0, 0, canvas.width, canvas.height); tinted.width = 0;
+  }
+  ctx.globalAlpha = 1;
+}
+function refreshVideoOnions() {
+  if (!project || !$('#video-onions')) return;
+  const identity = JSON.stringify([video?.src, fps, project.clipRanges]);
+  if (identity !== videoGhostIdentity) { videoGhosts.clear(); videoGhostIdentity = identity; }
+  if (video) video.style.visibility = project.videoHidden ? 'hidden' : '';
+  if (gifCanvas) gifCanvas.style.visibility = project.videoHidden ? 'hidden' : '';
+  renderVideoGhosts();
+  const signature = JSON.stringify([frame, fps, project.videoOnion, project.videoHidden, playing, project.clipRanges, video?.src]);
+  if (signature === onionSignature) return;
+  onionSignature = signature;
+  const generation = ++onionGeneration;
+  clearTimeout(onionTimer);
+  if (!mediaLoaded || !video?.src || gif || project.videoHidden || playing || !onionSettings(project.videoOnion).enabled) return;
+  const requested = onionFrames(frame, frameCount, project.videoOnion).map(ghost => sourceFrame(project.clipRanges, ghost.frame));
+  const source = video.src, rate = fps;
+  onionTimer = setTimeout(() => {
+    onionQueue = onionQueue.catch(() => {}).then(async () => {
+      if (generation !== onionGeneration) return;
+      if (!onionDecoder || onionDecoder.src !== source) {
+        onionDecoder?.removeAttribute('src');
+        onionDecoder = document.createElement('video'); onionDecoder.muted = true; onionDecoder.playsInline = true; onionDecoder.preload = 'auto'; onionDecoder.src = source;
+      }
+      const decoder = onionDecoder;
+      if (decoder.readyState < 1) await waitForMedia(decoder, 'loadedmetadata');
+      for (const index of requested) {
+        if (generation !== onionGeneration) return;
+        if (videoGhosts.has(index)) continue;
+        const ready = waitForMedia(decoder, 'seeked');
+        decoder.currentTime = Math.min(index / rate + 0.0001, decoder.duration - 0.0001);
+        await ready;
+        if (generation !== onionGeneration) return;
+        const image = document.createElement('canvas'); image.width = Math.min(decoder.videoWidth, 640); image.height = Math.round(image.width * decoder.videoHeight / decoder.videoWidth);
+        image.getContext('2d').drawImage(decoder, 0, 0, image.width, image.height);
+        videoGhosts.set(index, image);
+        if (videoGhosts.size > 48) videoGhosts.delete(videoGhosts.keys().next().value);
+        renderVideoGhosts();
+      }
+    }).catch(() => {
+      if (generation === onionGeneration) toast('Video onion frames could not be decoded. Sketch onion skin is still available.', true);
+    });
+  }, 80);
+}
+function waitForMedia(media, event) {
+  return new Promise((resolve, reject) => {
+    const done = () => { clearTimeout(timer); media.removeEventListener(event, success); media.removeEventListener('error', failure); };
+    const success = () => { done(); resolve(); }, failure = () => { done(); reject(new Error('Video decode failed')); };
+    const timer = setTimeout(failure, 5000);
+    media.addEventListener(event, success, { once: true }); media.addEventListener('error', failure, { once: true });
+  });
+}
+
 home();
