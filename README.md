@@ -1,6 +1,6 @@
 # FrameSketch
 
-A video review and drawing studio, built as a static web app. Development and testing currently focus on Google Chrome on Windows; iPad Safari validation will follow. No account or server is required. Projects, sketches, and uploaded media are stored in IndexedDB in the current browser.
+A video review and drawing studio, built as a static web app. Development and testing currently focus on Google Chrome on Windows; iPad Safari validation will follow. Uploads and direct-file links need no account or backend. Platform links use the optional local Windows downloader. Projects, sketches, and uploaded media are stored in IndexedDB in the current browser.
 
 ## Run locally
 
@@ -27,7 +27,7 @@ If something fails, note what you clicked and what happened. A screenshot of the
 
 ## Review a clip
 
-1. Create a project and upload an MP4, WebM, MOV, or M4V video. Set the source frame rate to match your clip; the default is 24 fps.
+1. Create a project and upload an MP4, WebM, MOV, or M4V video, or choose Paste link. Set the source frame rate to match your clip; the default is 24 fps.
 2. Step with the previous/next frame buttons, keyboard arrows, or scrub the timeline ruler. On touch devices, drag the filmstrip to scroll and drag the ruler to scrub. Increase timeline zoom to see individual numbered frames and their thumbnails.
 3. Draw with a mouse, touch, or Apple Pencil. Pressure changes line width on devices that report it. Sketches are specific to the selected frame. Use brush, eraser, color, brush size, undo, and redo.
 4. Add layers, click their name to rename, hide/show, lock/unlock, and change opacity. The eraser affects only the active layer.
@@ -54,7 +54,7 @@ Open **Crop / Slice** in the player header. Crop fields are percentages of the o
 
 ## Media and storage limitations
 
-- New projects use uploaded video files only. Link import and GIF upload are deferred. Previously saved projects and backups can still be opened without deleting their data.
+- New projects accept uploaded videos or pasted links. Direct media links need browser download access; platform links need the Windows helper described below. GIF upload remains deferred. Previously saved projects and backups can still be opened without deleting their data.
 - Safari codec support varies. H.264 video with AAC audio in an MP4 container is the safest iPad format. An unsupported file gives a recoverable attach-media screen. DRM and live streams are not supported.
 - Video frame stepping uses timestamps and the manually selected source fps. Variable-frame-rate video is sampled at that rate, not decoded into original frame indices. Convert variable-frame-rate footage to constant frame rate when original-frame accuracy is essential.
 - Waveforms are decoded from the video's audio and displayed inside the timeline. No separate audio layer is created. Silent/unsupported audio produce an explicit unavailable label, not a fabricated waveform. Large audio files (over 120 MB) skip waveform decoding to limit memory use.
@@ -90,3 +90,30 @@ TEST_WEBKIT=1 npm run test:e2e
 ```
 
 The suite checks video uploads, upload validation, frame stepping, drawing/erasing and layer behavior, range playback, persistence, backup import/export, and iPad-sized layouts. Chromium tests and production build were run in the cloud workspace. A WebKit download was denied by the environment network policy; physical iPad Safari and Apple Pencil behavior still need device validation.
+
+## Free Windows link downloader
+
+The Windows helper runs on your own PC and has **no hosting fee**. GitHub Pages itself cannot run a downloader. The hosted app can import direct video-file links when their host permits browser downloads; platform post links require the helper.
+
+1. Install [Node.js 22 or newer](https://nodejs.org/) and [Python 3.11 or newer](https://www.python.org/downloads/windows/). In Python's installer, enable **Add Python to PATH**.
+2. On the GitHub repository, click **Code → Download ZIP** and extract the ZIP.
+3. Double-click **START-FRAMESKETCH.cmd** in the extracted folder. It installs the project's pinned dependencies, builds the app, and starts the local server.
+4. Open `http://127.0.0.1:4318` in Chrome and keep the command window open. Choose **New project → Paste link**.
+
+Supported routes: a specific YouTube video/Short, X/Twitter status, Instagram post/Reel, Sakugabooru post, or a direct video URL. Imported video bytes are saved locally with the project. Public-video downloads use yt-dlp; Sakugabooru posts resolve the video's `file_url` through `/post.json`. No TurboScribe API, account, or paid service is used. The supplied reference extensions were inspected as reference only; the X archive is an image collector, and Instagram's requests depend on its browser session.
+
+If FFmpeg is installed and available on PATH, the helper can merge higher-quality video/audio formats. Without it, the helper requests an already combined file, which can limit quality. Imports have a 250 MB limit and a three-minute downloader timeout. Login-required, unavailable, protected, or rate-limited posts can fail; the helper does not read browser cookies or bypass login. You can still use your existing downloader and upload the resulting file.
+
+The local app and GitHub Pages have separate browser storage. Export/import `.framesketch` backups to move projects between them. This helper currently serves the Windows PC only, not iPad Safari. It binds to loopback, rejects foreign origins, and does not expose a public download proxy.
+
+For development on Linux/macOS:
+
+```sh
+python3 -m venv .downloader-venv
+.downloader-venv/bin/python -m pip install -r scripts/downloader-requirements.txt
+npm ci
+npm run build
+FRAMESKETCH_PYTHON="$PWD/.downloader-venv/bin/python" npm run desktop
+```
+
+Validation: the downloader API, URL validation, resolver fixtures, direct-file import and project reopening were tested. yt-dlp installed successfully. Live YouTube and the supplied Sakugabooru/TurboScribe pages returned cloud-proxy access denials; real platform downloads and the Windows launcher remain to be validated on the user's Windows PC. No claim of successful live social downloads is made from mocked tests.

@@ -1,3 +1,4 @@
+import { downloadLinkedVideo } from "./link-import.js";
 import {
   sourceFrame,
   logicalFrame,
@@ -218,7 +219,7 @@ function renderHome() {
     .sort((a, b) =>
       sort === "name" ? a.name.localeCompare(b.name) : b.updated - a.updated,
     );
-  app.innerHTML = `<div class="home-shell"><aside class="home-sidebar"><a class="brand" href="#">${icon("logo", 31)}<span>FrameSketch<span class="brand-dot">.</span></span></a><div class="workspace-label">YOUR WORKSPACE</div><nav><button class="nav-item ${filter === "all" ? "active" : ""}" data-filter="all">${icon("grid")} All projects <span>${projects.length}</span></button><button class="nav-item ${filter === "sketched" ? "active" : ""}" data-filter="sketched">${icon("brush")} With sketches</button><button class="nav-item ${filter === "new" ? "active" : ""}" data-filter="new">${icon("film")} Unreviewed</button></nav><div class="sidebar-bottom"><div class="device-note">${icon("check", 16)} Your ideas stay with you</div><p>Projects are saved in this browser.<br>Export a backup to keep them safe.</p><button id="help" class="text-button">${icon("help", 16)} Quick guide</button><div class="profile"><div class="avatar">FS</div><div>Personal workspace<small>Local storage · No account needed</small></div></div></div></aside><main class="home-main"><header class="home-top"><span>WORKSPACE <span class="slash">/</span> Projects</span><button id="import" class="text-button">${icon("upload", 16)} Import project</button></header><section class="home-content"><div class="heading-row"><div><div class="eyebrow">A CLOSER LOOK. A CLEARER IDEA.</div><h1>Your projects<span class="brand-dot">.</span></h1><p>Slow it down. Draw it out. Make every frame count.</p></div><button class="primary" id="new-project">${icon("plus")} New project</button></div><div class="welcome-banner"><div class="banner-icon">${icon("brush", 29)}</div><div><h3>Good feedback starts with a single frame.</h3><p>Bring your footage. Add your perspective. Pick up right where you left off.</p></div><span class="banner-tag">YOUR FRAME. YOUR CANVAS.</span></div><div class="project-toolbar"><div class="project-count">${filter === "all" ? "All projects" : filter === "sketched" ? "With sketches" : "Unreviewed"} <span>${list.length}</span></div><div class="list-controls"><input type="search" id="search" placeholder="Search projects…" value="${esc(search)}" aria-label="Search projects"/><select id="sort" aria-label="Sort projects"><option value="recent" ${sort === "recent" ? "selected" : ""}>Recently edited</option><option value="name" ${sort === "name" ? "selected" : ""}>Name A–Z</option></select></div></div><div class="project-grid">${list.map((p) => card(p)).join("")}<button class="new-card" id="new-card"><span>${icon("plus", 28)}</span><strong>Create a new project</strong><small>Upload a video from your device</small></button></div>${!projects.length ? `<div class="empty-tip">${icon("film", 19)} Start with your own footage, or <button id="demo" class="inline-button">explore a sample project ${icon("arrow", 14)}</button></div>` : ""}<footer class="home-footer"><span>MADE FOR THE DETAILS.</span><span>Apple Pencil & touch ready <span class="tiny-dot"></span> Safari on iPad</span></footer></section></main></div><input hidden type="file" id="import-file" accept=".framesketch,application/json"/>`;
+  app.innerHTML = `<div class="home-shell"><aside class="home-sidebar"><a class="brand" href="#">${icon("logo", 31)}<span>FrameSketch<span class="brand-dot">.</span></span></a><div class="workspace-label">YOUR WORKSPACE</div><nav><button class="nav-item ${filter === "all" ? "active" : ""}" data-filter="all">${icon("grid")} All projects <span>${projects.length}</span></button><button class="nav-item ${filter === "sketched" ? "active" : ""}" data-filter="sketched">${icon("brush")} With sketches</button><button class="nav-item ${filter === "new" ? "active" : ""}" data-filter="new">${icon("film")} Unreviewed</button></nav><div class="sidebar-bottom"><div class="device-note">${icon("check", 16)} Your ideas stay with you</div><p>Projects are saved in this browser.<br>Export a backup to keep them safe.</p><button id="help" class="text-button">${icon("help", 16)} Quick guide</button><div class="profile"><div class="avatar">FS</div><div>Personal workspace<small>Local storage · No account needed</small></div></div></div></aside><main class="home-main"><header class="home-top"><span>WORKSPACE <span class="slash">/</span> Projects</span><button id="import" class="text-button">${icon("upload", 16)} Import project</button></header><section class="home-content"><div class="heading-row"><div><div class="eyebrow">A CLOSER LOOK. A CLEARER IDEA.</div><h1>Your projects<span class="brand-dot">.</span></h1><p>Slow it down. Draw it out. Make every frame count.</p></div><button class="primary" id="new-project">${icon("plus")} New project</button></div><div class="welcome-banner"><div class="banner-icon">${icon("brush", 29)}</div><div><h3>Good feedback starts with a single frame.</h3><p>Bring your footage. Add your perspective. Pick up right where you left off.</p></div><span class="banner-tag">YOUR FRAME. YOUR CANVAS.</span></div><div class="project-toolbar"><div class="project-count">${filter === "all" ? "All projects" : filter === "sketched" ? "With sketches" : "Unreviewed"} <span>${list.length}</span></div><div class="list-controls"><input type="search" id="search" placeholder="Search projects…" value="${esc(search)}" aria-label="Search projects"/><select id="sort" aria-label="Sort projects"><option value="recent" ${sort === "recent" ? "selected" : ""}>Recently edited</option><option value="name" ${sort === "name" ? "selected" : ""}>Name A–Z</option></select></div></div><div class="project-grid">${list.map((p) => card(p)).join("")}<button class="new-card" id="new-card"><span>${icon("plus", 28)}</span><strong>Create a new project</strong><small>Upload a video or paste a link</small></button></div>${!projects.length ? `<div class="empty-tip">${icon("film", 19)} Start with your own footage, or <button id="demo" class="inline-button">explore a sample project ${icon("arrow", 14)}</button></div>` : ""}<footer class="home-footer"><span>MADE FOR THE DETAILS.</span><span>Apple Pencil & touch ready <span class="tiny-dot"></span> Safari on iPad</span></footer></section></main></div><input hidden type="file" id="import-file" accept=".framesketch,application/json"/>`;
   $("#new-project").onclick = () => createDialog();
   $("#new-card").onclick = () => createDialog();
   $("#help").onclick = helpDialog;
@@ -287,9 +288,26 @@ function modal(content, wide = false) {
 }
 function createDialog(attach = false) {
   const el = modal(
-    `<div class="eyebrow">${attach ? "REVIEW-READY FOOTAGE" : "SOMETHING WORTH A CLOSER LOOK"}</div><h2>${attach ? "Attach a video" : "New project"}<span class="brand-dot">.</span></h2><p>${attach ? "Attach the video file to enable frame controls and sketching." : "Bring in a video and make it your canvas."}</p><form id="create-form">${attach ? "" : `<label>Project name<input id="project-name" required maxlength="100" placeholder="e.g. Walk cycle study"/></label>`}<div id="upload-panel"><label class="dropzone" id="dropzone">${icon("upload", 30)}<strong id="file-label">Choose a video</strong><span>Tap to browse, or drop a file here</span><small>MP4, WebM, MOV · H.264 MP4 recommended for iPad Safari</small><input hidden type="file" id="media-file" accept="video/*,.webm,.mp4,.mov,.m4v"/></label></div><label class="source-fps-label">Source frame rate<select id="create-fps" aria-label="Project frame rate">${[12, 15, 23.976, 24, 25, 29.97, 30, 50, 59.94, 60].map((n) => `<option value="${n}" ${n === (attach ? fps : 24) ? "selected" : ""}>${n} fps</option>`).join("")}</select><small>Match your clip for accurate frame stepping.</small></label><div id="create-error" class="form-error" role="alert"></div><button class="primary full" id="create-submit" type="submit">${attach ? "Attach video" : "Create project"} ${icon("arrow", 17)}</button><p class="storage-caption">Saved on this device. Export a backup before clearing Safari data.</p></form>`,
+    `<div class="eyebrow">${attach ? "REVIEW-READY FOOTAGE" : "SOMETHING WORTH A CLOSER LOOK"}</div><h2>${attach ? "Attach a video" : "New project"}<span class="brand-dot">.</span></h2><p>${attach ? "Attach the video file to enable frame controls and sketching." : "Bring in a video and make it your canvas."}</p><form id="create-form">${attach ? "" : `<label>Project name<input id="project-name" required maxlength="100" placeholder="e.g. Walk cycle study"/></label>`}<div class="source-tabs"><button id="tab-upload" type="button" class="active">Upload video</button><button id="tab-link" type="button">Paste link</button></div><div id="upload-panel"><label class="dropzone" id="dropzone">${icon("upload", 30)}<strong id="file-label">Choose a video</strong><span>Tap to browse, or drop a file here</span><small>MP4, WebM, MOV · H.264 MP4 recommended for iPad Safari</small><input hidden type="file" id="media-file" accept="video/*,.webm,.mp4,.mov,.m4v"/></label></div><div id="link-panel" hidden><label>Video link<input id="media-link" type="url" placeholder="YouTube, X, Instagram, Sakugabooru, or direct video URL"/></label><p class="info-note">Platform links need the free Windows helper. Direct video links can work here if the host permits downloading.</p><button id="helper-help" type="button" class="text-button">How to run the free helper</button></div><label class="source-fps-label">Source frame rate<select id="create-fps" aria-label="Project frame rate">${[12, 15, 23.976, 24, 25, 29.97, 30, 50, 59.94, 60].map((n) => `<option value="${n}" ${n === (attach ? fps : 24) ? "selected" : ""}>${n} fps</option>`).join("")}</select><small>Match your clip for accurate frame stepping.</small></label><div id="create-error" class="form-error" role="alert"></div><button class="primary full" id="create-submit" type="submit">${attach ? "Attach video" : "Create project"} ${icon("arrow", 17)}</button><p class="storage-caption">Saved on this device. Export a backup before clearing Safari data.</p></form>`,
   );
-  let file = null;
+  let file = null,
+    mode = "upload";
+  const setMode = (value) => {
+    mode = value;
+    $("#upload-panel").hidden = value !== "upload";
+    $("#link-panel").hidden = value !== "link";
+    $("#tab-upload").classList.toggle("active", value === "upload");
+    $("#tab-link").classList.toggle("active", value === "link");
+  };
+  $("#tab-upload").onclick = () => setMode("upload");
+  $("#tab-link").onclick = () => setMode("link");
+  $("#helper-help").onclick = () => {
+    window.open(
+      "https://github.com/kdmallen/FrameSketch#free-windows-link-downloader",
+      "_blank",
+      "noopener",
+    );
+  };
   const selectFile = (f) => {
     file = f;
     $("#file-label").textContent = f?.name || "Choose a video";
@@ -312,18 +330,32 @@ function createDialog(attach = false) {
         ? structuredClone(project)
         : newProject($("#project-name").value.trim() || "Untitled project");
       p.fps = +$("#create-fps").value;
-      if (!file) throw new Error("Choose a video first.");
-      if (
-        file.type === "image/gif" ||
-        /\.gif$/i.test(file.name) ||
-        (!file.type.startsWith("video/") &&
-          !/\.(mp4|webm|mov|m4v)$/i.test(file.name))
-      )
-        throw new Error(
-          "Choose a video file (MP4, WebM or MOV). GIFs and links are not supported for new projects.",
-        );
-      await storage.saveMedia(p.id, file);
-      p.media = { type: "file", name: file.name, kind: "video" };
+      if (mode === "link") {
+        const url = $("#media-link").value.trim();
+        if (!url) throw new Error("Paste a video link first.");
+        submit.textContent = "Downloading video…";
+        const downloaded = await downloadLinkedVideo(url);
+        await storage.saveMedia(p.id, downloaded.blob);
+        p.media = {
+          type: "file",
+          kind: "video",
+          name: downloaded.name,
+          source: downloaded.source,
+        };
+      } else {
+        if (!file) throw new Error("Choose a video first.");
+        if (
+          file.type === "image/gif" ||
+          /\.gif$/i.test(file.name) ||
+          (!file.type.startsWith("video/") &&
+            !/\.(mp4|webm|mov|m4v)$/i.test(file.name))
+        )
+          throw new Error(
+            "Choose a video file (MP4, WebM or MOV). GIFs are not supported for new projects.",
+          );
+        await storage.saveMedia(p.id, file);
+        p.media = { type: "file", name: file.name, kind: "video" };
+      }
       if (attach) {
         delete p.clipRanges;
         delete p.editOriginal;
@@ -341,6 +373,7 @@ function createDialog(attach = false) {
     } catch (err) {
       $("#create-error") && ($("#create-error").textContent = err.message);
       submit.disabled = false;
+      submit.textContent = attach ? "Attach video" : "Create project";
     }
   };
 }
