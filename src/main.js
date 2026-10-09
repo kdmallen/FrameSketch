@@ -1530,6 +1530,9 @@ function renameProject() {
 }
 function setupDrawing() {
   const canvas = $("#drawing-canvas");
+  const viewer = $("#viewer");
+  viewer.oncontextmenu = (e) => e.preventDefault();
+  viewer.onselectstart = (e) => e.preventDefault();
   const point = (e) => {
     const r = canvas.getBoundingClientRect();
     return [
@@ -1580,6 +1583,8 @@ function setupDrawing() {
   canvas.addEventListener("pointerup", endTouch, true);
   canvas.addEventListener("pointercancel", endTouch, true);
   canvas.onpointerdown = (e) => {
+    e.preventDefault();
+    window.getSelection()?.removeAllRanges();
     if (!mediaLoaded || e.button > 0 || currentStroke) return;
     if (reviewTools?.pointerDown(e, canvas)) return;
     const l = layer();

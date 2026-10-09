@@ -991,6 +991,12 @@ label > input:not([type="range"]):not([type="color"]) {
   touch-action: none;
   cursor: crosshair;
 }
+.viewer,
+.viewer * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
 .viewer-loading {
   position: absolute;
   inset: 0;
