@@ -700,3 +700,20 @@ test("live drawing reuses cached canvases through a long stroke", async ({ page 
   await page.mouse.up();
   await expect(page.locator('#undo')).toBeEnabled();
 });
+
+test("Pencil pause stops playback without a mouse click and ignores its duplicate", async ({ page }) => {
+  await sample(page);
+  await page.locator('#play').click();
+  await expect(page.locator('#video')).toHaveJSProperty('paused', false);
+  await page.waitForTimeout(250);
+  const button = page.locator('#play');
+  await button.dispatchEvent('pointerdown', { pointerType: 'pen', pointerId: 101, clientX: 0, clientY: 0, button: 0, pressure: 0.5 });
+  await button.dispatchEvent('pointerup', { pointerType: 'pen', pointerId: 101, clientX: 0, clientY: 0, button: 0, pressure: 0 });
+  await expect(page.locator('#video')).toHaveJSProperty('paused', true);
+  await button.dispatchEvent('click');
+  await page.waitForTimeout(300);
+  await expect(page.locator('#video')).toHaveJSProperty('paused', true);
+  await button.dispatchEvent('pointerdown', { pointerType: 'pen', pointerId: 102, clientX: 0, clientY: 0, button: 0 });
+  await button.dispatchEvent('pointerup', { pointerType: 'pen', pointerId: 102, clientX: 0, clientY: 0, button: 0 });
+  await expect(page.locator('#video')).toHaveJSProperty('paused', false);
+});

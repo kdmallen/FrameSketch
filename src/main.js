@@ -457,7 +457,7 @@ function renderEditor() {
   let playTouch = null;
   let lastPlayTouch = -Infinity;
   playButton.onpointerdown = (e) => {
-    if (e.pointerType !== "touch") return;
+    if (!["touch", "pen"].includes(e.pointerType)) return;
     playTouch = { id: e.pointerId, x: e.clientX, y: e.clientY };
     if (e.isTrusted) playButton.setPointerCapture(e.pointerId);
   };
