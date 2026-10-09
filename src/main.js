@@ -1383,7 +1383,7 @@ function renderLayers() {
   $("#layer-list").innerHTML = project.layers
     .map(
       (l, i) =>
-        `<div class="layer-row ${l.id === activeLayer ? "active" : ""}" data-layer="${l.id}" tabindex="0" role="button" aria-label="Select ${esc(l.name)}"><div class="layer-thumbnail">${icon("brush", 18)}</div><div class="layer-label"><button data-rename="${l.id}" title="Rename layer">${esc(l.name)}</button><small data-count="${l.id}">${Object.keys(l.frames).length} frames</small></div><button class="mini-button" data-visible="${l.id}" title="${l.visible ? "Hide" : "Show"} layer" aria-label="${l.visible ? "Hide" : "Show"} ${esc(l.name)}">${icon(l.visible ? "eye" : "hidden", 17)}</button><button class="mini-button ${l.locked ? "locked" : ""}" data-lock="${l.id}" title="${l.locked ? "Unlock" : "Lock"} layer" aria-label="${l.locked ? "Unlock" : "Lock"} ${esc(l.name)}">${icon(l.locked ? "lock" : "unlock", 16)}</button></div>`,
+        `<div class="layer-swipe"><button class="layer-swipe-action" data-remove-layer="${l.id}" aria-label="${project.layers.length === 1 ? "Clear" : "Delete"} ${esc(l.name)}">${project.layers.length === 1 ? "Clear" : "Delete"}</button><div class="layer-row ${l.id === activeLayer ? "active" : ""}" data-layer="${l.id}" tabindex="0" role="button" aria-label="Select ${esc(l.name)}"><div class="layer-thumbnail">${icon("brush", 18)}</div><div class="layer-label"><button data-rename="${l.id}" title="Rename layer">${esc(l.name)}</button><small data-count="${l.id}">${Object.keys(l.frames).length} frames</small></div><button class="mini-button" data-visible="${l.id}" title="${l.visible ? "Hide" : "Show"} layer" aria-label="${l.visible ? "Hide" : "Show"} ${esc(l.name)}">${icon(l.visible ? "eye" : "hidden", 17)}</button><button class="mini-button ${l.locked ? "locked" : ""}" data-lock="${l.id}" title="${l.locked ? "Unlock" : "Lock"} layer" aria-label="${l.locked ? "Unlock" : "Lock"} ${esc(l.name)}">${icon(l.locked ? "lock" : "unlock", 16)}</button></div></div>`,
     )
     .join("");
   $("#layer-settings").innerHTML = l
@@ -1394,7 +1394,25 @@ function renderLayers() {
       activeLayer = row.dataset.layer;
       renderLayers();
     };
+    let swipe = null;
+    let swipedAt = -Infinity;
+    row.onpointerdown = (e) => {
+      if (e.pointerType !== "touch") return;
+      swipe = { id: e.pointerId, x: e.clientX, y: e.clientY };
+    };
+    row.onpointermove = (e) => {
+      if (!swipe || swipe.id !== e.pointerId) return;
+      const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
+      if (Math.abs(dy) > 24 && Math.abs(dy) > Math.abs(dx)) { swipe = null; return; }
+      if (Math.abs(dx) > 24) {
+        swipedAt = performance.now();
+        row.parentElement.classList.toggle("revealed", dx < 0);
+      }
+    };
+    row.onpointerup = () => { swipe = null; };
+    row.onpointercancel = () => { swipe = null; };
     row.onclick = (e) => {
+      if (performance.now() - swipedAt < 800) { e.preventDefault(); e.stopPropagation(); return; }
       if (!e.target.closest("button")) choose();
     };
     row.onkeydown = (e) => {
@@ -1431,26 +1449,50 @@ function renderLayers() {
       persist();
     };
     $("#rename-layer").onclick = () => renameLayer(activeLayer);
-    $("#delete-layer").onclick = () => {
-      modal(
-        `<h2>Delete this layer?</h2><p>All sketches on “${esc(l.name)}” will be removed.</p><button id="confirm-layer-delete" class="danger full">Delete layer</button>`,
-      );
-      $("#confirm-layer-delete").onclick = () => {
-        project.layers = project.layers.filter((item) => item.id !== l.id);
-        activeLayer = project.layers[0].id;
-        undo = [];
-        redo = [];
-        $("#modal").remove();
-        renderLayers();
-        draw();
-        persist();
-        updateHistory();
-      };
-    };
+    $("#delete-layer").disabled = false;
+    $("#delete-layer").innerHTML = `${icon("trash", 14)} ${project.layers.length === 1 ? "Clear" : "Delete"}`;
+    $("#delete-layer").onclick = () => removeSketchLayer(activeLayer);
     $("#selection-status").textContent =
       `${l.name}${l.locked ? " · Locked" : ""}${!l.visible ? " · Hidden" : ""}`;
   }
+  document.querySelectorAll("[data-remove-layer]").forEach(button => {
+    let touchStart = null;
+    let lastTouch = -Infinity;
+    button.onpointerdown = e => {
+      if (e.pointerType === "touch") touchStart = { x: e.clientX, y: e.clientY };
+    };
+    button.onpointercancel = () => { touchStart = null; };
+    button.onpointerup = e => {
+      if (!touchStart) return;
+      const tap = Math.hypot(e.clientX - touchStart.x, e.clientY - touchStart.y) < 16;
+      touchStart = null;
+      if (!tap) return;
+      e.preventDefault();
+      lastTouch = performance.now();
+      removeSketchLayer(button.dataset.removeLayer);
+    };
+    button.onclick = () => {
+      if (performance.now() - lastTouch < 800) return;
+      removeSketchLayer(button.dataset.removeLayer);
+    };
+  });
   updateLayerFrameCounts();
+}
+function removeSketchLayer(id) {
+  const target = project.layers.find(item => item.id === id);
+  if (!target) return;
+  const clearing = project.layers.length === 1;
+  modal(`<h2>${clearing ? "Clear" : "Delete"} this layer?</h2><p>All sketches on “${esc(target.name)}” across the video will be removed.${clearing ? " The layer will remain." : ""}</p><button id="confirm-layer-delete" class="danger full">${clearing ? "Clear layer" : "Delete layer"}</button>`);
+  $("#confirm-layer-delete").onclick = () => {
+    if (clearing) target.frames = {};
+    else {
+      project.layers = project.layers.filter(item => item.id !== id);
+      if (activeLayer === id) activeLayer = project.layers[0].id;
+    }
+    undo = []; redo = [];
+    $("#modal").remove();
+    renderLayers(); draw(); updateFrame(); persist(); updateHistory();
+  };
 }
 function updateLayerFrameCounts() {
   project?.layers.forEach((l) => {

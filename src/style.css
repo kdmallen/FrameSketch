@@ -2620,3 +2620,11 @@ label > input:not([type="range"]):not([type="color"]) {
 @media (pointer: coarse) {
   .playhead-tab { width: 28px; height: 24px; left: -13.5px; }
 }
+
+.layer-swipe { position: relative; overflow: hidden; border-radius: 6px; margin-bottom: 6px; }
+.layer-swipe .layer-row { position: relative; z-index: 1; margin-bottom: 0; background-color: var(--panel); touch-action: pan-y; transition: transform .15s ease; }
+.layer-swipe .layer-row.active { background-color: #2b3529; }
+.layer-swipe.revealed .layer-row { transform: translateX(-80px); }
+.layer-swipe-action { visibility: hidden; position: absolute; right: 0; top: 0; bottom: 0; width: 80px; background: #b13b48; color: white; font-size: 12px; }
+
+.layer-swipe.revealed .layer-swipe-action { visibility: visible; }

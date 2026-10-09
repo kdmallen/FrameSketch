@@ -582,3 +582,35 @@ test("touch pause stops playback once and does not resume from a compatibility c
   await expect(page.locator('#video')).toHaveJSProperty('paused', true);
   await context.close();
 });
+
+test("swipe deletes a sketch layer and clears the final layer", async ({ browser }) => {
+  const context = await browser.newContext({ hasTouch: true, viewport: { width: 1180, height: 820 } });
+  const page = await context.newPage();
+  await sample(page);
+  await draw(page);
+  await page.locator('#add-layer').tap();
+  const session = await context.newCDPSession(page);
+  const swipe = async () => {
+    const r = await page.locator('.layer-row').first().boundingBox();
+    const point = dx => [{ id: 0, x: Math.round(r.x + r.width / 2 + dx), y: Math.round(r.y + r.height / 2) }];
+    await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: point(0) });
+    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: point(-65) });
+    await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await expect(page.locator('.layer-swipe').first()).toHaveClass(/revealed/);
+    await page.locator('.layer-swipe-action').first().tap();
+    await page.locator('#confirm-layer-delete').tap();
+  };
+  await swipe();
+  await expect(page.locator('.layer-row')).toHaveCount(1);
+  await expect(page.locator('#annotated-count')).toHaveText('1');
+  await expect(page.locator('.layer-swipe-action')).toHaveText('Clear');
+  await swipe();
+  await expect(page.locator('.layer-row')).toHaveCount(1);
+  await expect(page.locator('#annotated-count')).toHaveText('0');
+  await page.locator('#back-home').tap();
+  await page.locator('[data-open]').first().tap();
+  await expect(page.locator('#viewer-state')).toHaveText('READY TO REVIEW');
+  await expect(page.locator('.layer-row')).toHaveCount(1);
+  await expect(page.locator('#annotated-count')).toHaveText('0');
+  await context.close();
+});
