@@ -1,3 +1,5 @@
+import { ReviewTools, drawingFrame } from "./review-tools.js";
+let reviewTools = null;
 import "./style.css";
 import { parseGIF, decompressFrames } from "gifuct-js";
 import {
@@ -152,6 +154,7 @@ function persist(immediate = false) {
   saveTimer = setTimeout(run, 350);
 }
 function cleanup() {
+  reviewTools = null;
   routeToken++;
   clearTimeout(thumbTimer);
   frameThumbs.clear();
@@ -519,6 +522,27 @@ function renderEditor() {
     if (frames.length) seek(frames.find((n) => n > frame) ?? frames[0]);
     else toast("Draw on a frame to add a review note.");
   };
+  reviewTools = new ReviewTools({
+    project: () => project,
+    frame: () => frame,
+    count: () => frameCount,
+    zoom: () => timelineZoom,
+    ready: () => mediaLoaded,
+    seek,
+    pause,
+    toast,
+    resetHistory: () => {
+      undo = [];
+      redo = [];
+      updateHistory();
+    },
+    changed: () => {
+      draw();
+      updateFrame();
+      persist();
+      renderLayers();
+    },
+  });
   setupDrawing();
   renderLayers();
   setupTimeline();
@@ -758,6 +782,7 @@ function seek(n, stop = true) {
   persist();
 }
 function updateFrame() {
+  reviewTools?.update();
   if (!$("#timecode")) return;
   $("#timecode").textContent = timecode(frame, fps);
   $("#frame-badge").innerHTML =
@@ -847,6 +872,7 @@ function highlight() {
   persist();
 }
 function buildTimeline() {
+  reviewTools?.update();
   if (!$("#timeline-track")) return;
   const width = Math.max(
     $("#timeline-scroll").clientWidth,
@@ -1070,11 +1096,17 @@ function setupTimeline() {
   const track = $("#timeline-track");
   const scrub = (e) => {
     const rect = track.getBoundingClientRect();
-    seek((e.clientX - rect.left) / timelineZoom);
+    if (reviewTools)
+      reviewTools.timeline((e.clientX - rect.left) / timelineZoom);
+    else seek((e.clientX - rect.left) / timelineZoom);
   };
   track.onpointerdown = (e) => {
     if (!mediaLoaded || e.target.closest("button")) return;
     if (e.pointerType === "touch" && !e.target.closest(".ruler")) {
+      scrub(e);
+      return;
+    }
+    if (reviewTools?.groupMode) {
       scrub(e);
       return;
     }
@@ -1189,6 +1221,11 @@ async function makeWaveform(source, token) {
   }
 }
 function selectTool(t) {
+  if (reviewTools) {
+    reviewTools.sphereMode = false;
+    reviewTools.update();
+    draw();
+  }
   tool = t;
   $("#brush")?.classList.toggle("selected", t === "brush");
   $("#eraser")?.classList.toggle("selected", t === "eraser");
@@ -1318,6 +1355,7 @@ function setupDrawing() {
   };
   canvas.onpointerdown = (e) => {
     if (!mediaLoaded || e.button > 0 || currentStroke) return;
+    if (reviewTools?.pointerDown(e, canvas)) return;
     const l = layer();
     if (l.locked || !l.visible) {
       toast(
@@ -1340,17 +1378,19 @@ function setupDrawing() {
     draw();
   };
   canvas.onpointermove = (e) => {
+    if (reviewTools?.pointerMove(e, canvas)) return;
     if (!currentStroke || pointerId !== e.pointerId) return;
     const events = e.getCoalescedEvents?.() || [e];
     events.forEach((event) => currentStroke.points.push(point(event)));
     draw();
   };
   const finish = (e) => {
+    if (reviewTools?.pointerUp(e)) return;
     if (!currentStroke || pointerId !== e.pointerId) return;
     const l = layer();
     const stroke = currentStroke;
-    (l.frames[frame] ||= []).push(stroke);
-    undo.push({ layer: l.id, frame, stroke });
+    (l.frames[drawingFrame(project, frame)] ||= []).push(stroke);
+    undo.push({ layer: l.id, frame: drawingFrame(project, frame), stroke });
     redo = [];
     currentStroke = null;
     pointerId = null;
@@ -1404,7 +1444,7 @@ function draw() {
   [...project.layers].reverse().forEach((l) => {
     if (!l.visible) return;
     lctx.clearRect(0, 0, c.width, c.height);
-    (l.frames[frame] || []).forEach((s) =>
+    (l.frames[drawingFrame(project, frame)] || []).forEach((s) =>
       paintStroke(lctx, s, c.width, c.height),
     );
     if (l.id === activeLayer && currentStroke)
@@ -1413,6 +1453,7 @@ function draw() {
     ctx.drawImage(layerCanvas, 0, 0);
   });
   ctx.globalAlpha = 1;
+  reviewTools?.draw(ctx, c.width, c.height);
 }
 function undoStroke() {
   const action = undo.pop();
@@ -1571,6 +1612,7 @@ document.addEventListener("keydown", (e) => {
     arrowright: () => seek(frame + 1),
     a: () => $("#mark-a").click(),
     b: () => $("#mark-b").click(),
+    s: () => reviewTools?.key(),
     m: highlight,
     d: () => selectTool("brush"),
     e: () => selectTool("eraser"),

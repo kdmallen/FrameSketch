@@ -36,6 +36,14 @@ If something fails, note what you clicked and what happened. A screenshot of the
 
 Keyboard: Space play/pause, arrows step, A/B range, M highlight, D brush, E eraser, Ctrl/Command Z undo, Ctrl/Command Shift Z redo.
 
+## Frame groups, clearing, and guide sphere
+
+- **Clear frame**, beside Sketch layers, clears drawings on every layer for the current frame, including hidden and locked layers, after confirmation. In a group it clears the shared drawing. It does not remove the tracked sphere or its keys.
+- Turn **Group** on and click a first and last frame in the video timeline. All frames in that inclusive range become a colored group. Turn Group off; clicking any frame in the group opens its first frame. Sketches are shared across the range, including during playback. Existing sketches in a newly grouped range are combined at the first frame. Groups cannot overlap. **Ungroup** restores independent frames with a copy of the shared drawing on each.
+- **Guide sphere → Add sphere** adds an orthographic wireframe guide. Use Edit on canvas and drag to position it, drag the white handles to change width/height, or Shift-drag to rotate. Sliders control position, width, height, rotations about X/Y/Z, and skew. It has no depth translation. Colored T/B/L/R/F/K labels indicate top, bottom, left, right, front, and back; rear guidelines are dashed.
+- Press **S** outside an input field or click **Key · S** to key all sphere attributes at the current video frame. The purple sphere track sits above the video ruler; click its diamonds to revisit keys. Attributes interpolate linearly between keys and hold outside the keyed range. Unkeyed edits at a frame remain a draft until S is pressed; Delete current key removes the key at that frame.
+- Groups, sphere properties, keys, and drafts autosave and are included in project backups. Sketch groups use the first frame for drawings, while sphere keys use the actual current video frame. Use frame-step buttons to reach interior group frames for keying.
+
 ## Media and storage limitations
 
 - New projects use uploaded video files only. Link import and GIF upload are deferred. Previously saved projects and backups can still be opened without deleting their data.

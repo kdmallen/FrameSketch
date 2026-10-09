@@ -152,6 +152,62 @@ export function validateProject(p) {
       });
     });
   });
+  if (p.groups !== undefined) {
+    if (!Array.isArray(p.groups) || p.groups.length > 10000)
+      throw new Error("Invalid frame groups.");
+    const sorted = [...p.groups].sort((a, b) => a.start - b.start);
+    sorted.forEach((g, i) => {
+      if (
+        typeof g.id !== "string" ||
+        !Number.isInteger(g.start) ||
+        !Number.isInteger(g.end) ||
+        g.start < 0 ||
+        g.end < g.start ||
+        !/^#[a-fA-F0-9]{6}$/.test(g.color) ||
+        (i && g.start <= sorted[i - 1].end)
+      )
+        throw new Error("Invalid frame groups.");
+    });
+  }
+  if (p.sphere) {
+    const sphere = p.sphere;
+    const validPose = (pose) =>
+      pose &&
+      ["x", "y", "width", "height", "rx", "ry", "rz", "skew"].every((k) =>
+        Number.isFinite(pose[k]),
+      ) &&
+      pose.width >= 0.02 &&
+      pose.width <= 1 &&
+      pose.height >= 0.02 &&
+      pose.height <= 1 &&
+      pose.x >= 0 &&
+      pose.x <= 1 &&
+      pose.y >= 0 &&
+      pose.y <= 1 &&
+      Math.abs(pose.skew) <= 1 &&
+      ["rx", "ry", "rz"].every((k) => Math.abs(pose[k]) <= 180);
+    if (
+      !validPose(sphere.pose) ||
+      typeof sphere.visible !== "boolean" ||
+      !sphere.keys ||
+      typeof sphere.keys !== "object" ||
+      Array.isArray(sphere.keys)
+    )
+      throw new Error("Invalid sphere.");
+    if (
+      Object.entries(sphere.keys).some(
+        ([key, pose]) => !/^\d+$/.test(key) || !validPose(pose),
+      )
+    )
+      throw new Error("Invalid sphere keys.");
+    if (
+      sphere.draft &&
+      (!Number.isInteger(sphere.draft.frame) ||
+        sphere.draft.frame < 0 ||
+        !validPose(sphere.draft.pose))
+    )
+      throw new Error("Invalid sphere draft.");
+  }
   if (p.media?.url) sourceType(p.media.url);
   return p;
 }

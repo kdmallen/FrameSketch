@@ -2277,3 +2277,168 @@ label > input:not([type="range"]):not([type="color"]) {
 #create-form #upload-panel {
   margin-top: 20px;
 }
+.layers-heading {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.layers-heading #clear-frame {
+  color: #ffba92;
+  margin-left: auto;
+}
+.group-status {
+  height: 22px;
+  padding: 4px 14px;
+  font-size: 9px;
+  color: #bdc9a5;
+  flex-shrink: 0;
+}
+.timeline-section {
+  height: 270px;
+}
+.timeline-track {
+  height: 165px;
+}
+.sphere-track {
+  position: relative;
+  height: 32px;
+  background: #252536;
+  border-bottom: 1px solid #49405c;
+}
+.sphere-track-label {
+  position: sticky;
+  left: 8px;
+  font-size: 8px;
+  letter-spacing: 1px;
+  color: #b7a4d5;
+  line-height: 30px;
+  pointer-events: none;
+}
+.sphere-key {
+  position: absolute;
+  top: 11px;
+  width: 10px;
+  height: 10px;
+  padding: 0;
+  background: #c4a1ff;
+  transform: rotate(45deg);
+  z-index: 7;
+}
+.sphere-key.current {
+  background: #fff;
+}
+.range-overlay {
+  top: 61px;
+}
+.range-pin {
+  top: 45px;
+}
+.highlight-pin {
+  top: 61px;
+}
+.frame-group {
+  position: absolute;
+  top: 62px;
+  height: 55px;
+  background: color-mix(in srgb, var(--group-color) 20%, transparent);
+  border: 2px solid var(--group-color);
+  border-radius: 4px;
+  pointer-events: none;
+  color: var(--group-color);
+}
+.frame-group span {
+  font-size: 9px;
+  background: #171b24d9;
+  padding: 2px 4px;
+  white-space: nowrap;
+}
+.sphere-panel {
+  padding: 16px;
+  border-top: 1px solid var(--line);
+  margin-top: 16px;
+}
+.sphere-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  gap: 8px;
+}
+.sphere-title button {
+  font-size: 10px;
+  padding: 6px;
+}
+.sphere-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 10px 0;
+}
+.sphere-buttons button {
+  font-size: 9px;
+  padding: 6px;
+  min-height: 30px;
+}
+.sphere-panel p,
+.sphere-legend {
+  font-size: 9px;
+  color: #8a97aa;
+  line-height: 1.7;
+  margin: 8px 0;
+}
+#sphere-fields label {
+  display: grid;
+  grid-template-columns: 52px 1fr 30px;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  margin: 5px 0;
+}
+#sphere-fields input {
+  width: 100%;
+  min-width: 0;
+}
+#sphere-fields output {
+  font-size: 8px;
+  color: #b9b1d0;
+}
+.sphere-buttons .selected {
+  color: var(--lime);
+  border-color: var(--lime);
+}
+.timeline-header {
+  height: auto;
+  min-height: 49px;
+}
+.timeline-actions {
+  flex-wrap: wrap;
+}
+.timeline-header {
+  flex-wrap: wrap;
+}
+.sphere-panel {
+  flex-shrink: 0;
+}
+@media (max-width: 900px) {
+  .timeline-section {
+    height: 310px;
+  }
+  .timeline-header {
+    padding: 8px 10px;
+    gap: 5px;
+  }
+  .timeline-title {
+    display: none;
+  }
+}
+@media (max-width: 700px) {
+  .sphere-panel {
+    max-width: 450px;
+    width: 100%;
+  }
+  .timeline-header {
+    min-height: 76px;
+  }
+  .timeline-section {
+    height: 305px;
+  }
+}

@@ -215,3 +215,78 @@ test("Apple Pencil style pointer input draws and timeline thumbnails render real
     /data:image\/jpeg/,
   );
 });
+test("groups share sketches, clear all layers and survive reopening", async ({
+  page,
+}) => {
+  await sample(page);
+  await page.locator("#timeline-zoom").fill("24");
+  await page.locator("#timeline-zoom").dispatchEvent("input");
+  const clickFrame = async (n) => {
+    const r = await page.locator("#ruler").boundingBox();
+    await page.mouse.click(r.x + n * 24 + 12, r.y + 12);
+  };
+  await page.locator("#group-mode").click();
+  await clickFrame(3);
+  await clickFrame(5);
+  await expect(page.locator(".frame-group")).toHaveCount(1);
+  await page.locator("#group-mode").click();
+  await clickFrame(4);
+  await expect(page.locator("#frame-position")).toHaveText("Frame 3 / 191");
+  await draw(page);
+  const image = await page
+    .locator("#drawing-canvas")
+    .evaluate((c) => c.toDataURL());
+  await page.keyboard.press("ArrowRight");
+  expect(
+    await page.locator("#drawing-canvas").evaluate((c) => c.toDataURL()),
+  ).toBe(image);
+  await page.locator("#add-layer").click();
+  await draw(page);
+  page.once("dialog", (d) => d.accept());
+  await page.locator("#clear-frame").click();
+  await expect(page.locator("#annotated-count")).toHaveText("0");
+  await page.locator("#back-home").click();
+  await page.locator("[data-open]").first().click();
+  await expect(page.locator("#viewer-state")).toHaveText("READY TO REVIEW");
+  await expect(page.locator(".frame-group")).toHaveCount(1);
+});
+test("sphere pose keys interpolate, restore and export with projects", async ({
+  page,
+}) => {
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await sample(page);
+  await page.locator("#add-sphere").click();
+  await page.locator('[data-pose="x"]').fill("0.2");
+  await page.locator('[data-pose="x"]').dispatchEvent("input");
+  await page.locator("#key-sphere").click();
+  await page.locator("#next").click();
+  await page.locator("#next").click();
+  await page.locator('[data-pose="x"]').fill("0.8");
+  await page.locator('[data-pose="x"]').dispatchEvent("input");
+  await page.locator('[data-pose="ry"]').fill("90");
+  await page.locator('[data-pose="ry"]').dispatchEvent("input");
+  await page.locator('[data-pose="ry"]').blur();
+  await page.keyboard.press("s");
+  await expect(page.locator(".sphere-key")).toHaveCount(2);
+  await page.locator("#prev").click();
+  await expect(page.locator('[data-pose="x"]')).toHaveValue("0.5");
+  await expect(page.locator('[data-pose="ry"]')).toHaveValue("45");
+  await page.locator("#back-home").click();
+  await page.locator("[data-open]").first().click();
+  await expect(page.locator("#viewer-state")).toHaveText("READY TO REVIEW");
+  await expect(page.locator(".sphere-key")).toHaveCount(2);
+  await expect(page.locator('[data-pose="x"]')).toHaveValue("0.5");
+  expect(errors).toEqual([]);
+  await page.screenshot({ path: "/tmp/framesketch-sphere.png" });
+  const download = page.waitForEvent("download");
+  await page.locator("#export").click();
+  await (await download).saveAs("/tmp/framesketch-sphere.framesketch");
+  await page.locator("#back-home").click();
+  await page
+    .locator("#import-file")
+    .setInputFiles("/tmp/framesketch-sphere.framesketch");
+  await expect(page.locator("#viewer-state")).toHaveText("READY TO REVIEW");
+  await expect(page.locator(".sphere-key")).toHaveCount(2);
+  await expect(page.locator('[data-pose="ry"]')).toHaveValue("45");
+});
