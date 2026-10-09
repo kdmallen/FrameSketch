@@ -445,3 +445,23 @@ test("gizmo free move, uniform scaling and corner warping change the selected sp
   expect(data.project.spheres[0].keys[0].tlx).toBeLessThan(0);
   expect(data.project.spheres[0].keys[0].tly).toBeLessThan(0);
 });
+
+test("deleting a sphere key preserves other spheres and persists", async ({ page }) => {
+  await sample(page);
+  await page.locator("#add-sphere").click();
+  await page.locator("#key-sphere").click();
+  await page.locator("#add-sphere").click();
+  await page.locator("#key-sphere").click();
+  await expect(page.locator(".sphere-key")).toHaveCount(2);
+  await page.locator(".sphere-key").first().click();
+  await expect(page.locator("#delete-key")).toBeEnabled();
+  await page.locator("#delete-key").click();
+  await expect(page.locator(".sphere-key")).toHaveCount(1);
+  await expect(page.locator("#delete-key")).toBeDisabled();
+  await expect(page.locator("#sphere-list option")).toHaveCount(2);
+  await page.locator("#back-home").click();
+  await page.locator("[data-open]").first().click();
+  await expect(page.locator("#viewer-state")).toHaveText("READY TO REVIEW");
+  await expect(page.locator(".sphere-key")).toHaveCount(1);
+  await expect(page.locator("#sphere-list option")).toHaveCount(2);
+});
