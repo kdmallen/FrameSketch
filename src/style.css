@@ -2442,3 +2442,9 @@ label > input:not([type="range"]):not([type="color"]) {
     height: 305px;
   }
 }
+/* Timeline dragging should scrub frames, never select its labels. */
+.timeline-section {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}

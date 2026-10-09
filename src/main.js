@@ -1101,7 +1101,9 @@ function setupTimeline() {
     else seek((e.clientX - rect.left) / timelineZoom);
   };
   track.onpointerdown = (e) => {
-    if (!mediaLoaded || e.target.closest("button")) return;
+    if (!mediaLoaded || e.button !== 0 || e.target.closest("button")) return;
+    if (e.pointerType !== "touch") e.preventDefault();
+    window.getSelection()?.removeAllRanges();
     if (e.pointerType === "touch" && !e.target.closest(".ruler")) {
       scrub(e);
       return;

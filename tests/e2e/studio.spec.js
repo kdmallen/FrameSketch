@@ -290,3 +290,15 @@ test("sphere pose keys interpolate, restore and export with projects", async ({
   await expect(page.locator(".sphere-key")).toHaveCount(2);
   await expect(page.locator('[data-pose="ry"]')).toHaveValue("45");
 });
+test('scrubbing and grouping never select timeline text',async({page})=>{
+ await sample(page);
+ const ruler=await page.locator('#ruler').boundingBox();
+ await page.mouse.move(ruler.x+5,ruler.y+12);await page.mouse.down();await page.mouse.move(ruler.x+150,ruler.y+12,{steps:12});await page.mouse.up();
+ await expect(page.locator('#frame-position')).toHaveText('Frame 25 / 191');
+ expect(await page.evaluate(()=>window.getSelection().toString())).toBe('');
+ await page.locator('#group-mode').click();
+ await page.mouse.move(ruler.x+18,ruler.y+12);await page.mouse.down();await page.mouse.move(ruler.x+90,ruler.y+12,{steps:12});await page.mouse.up();
+ await page.mouse.click(ruler.x+42,ruler.y+12);
+ await expect(page.locator('.frame-group')).toHaveCount(1);
+ expect(await page.evaluate(()=>window.getSelection().toString())).toBe('');
+});
