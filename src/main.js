@@ -1,3 +1,9 @@
+import {
+  sourceFrame,
+  logicalFrame,
+  rangeCount,
+  remapProject,
+} from "./video-edits.js";
 import { ReviewTools, drawingFrame } from "./review-tools.js";
 let reviewTools = null;
 import "./style.css";
@@ -154,6 +160,7 @@ function persist(immediate = false) {
   saveTimer = setTimeout(run, 350);
 }
 function cleanup() {
+  reviewTools?.destroy();
   reviewTools = null;
   routeToken++;
   clearTimeout(thumbTimer);
@@ -318,6 +325,9 @@ function createDialog(attach = false) {
       await storage.saveMedia(p.id, file);
       p.media = { type: "file", name: file.name, kind: "video" };
       if (attach) {
+        delete p.clipRanges;
+        delete p.editOriginal;
+        delete p.crop;
         p.layers = project.layers;
         p.duration = null;
         p.poster = null;
@@ -349,7 +359,7 @@ async function createDemo() {
 }
 function helpDialog() {
   modal(
-    `<div class="eyebrow">A LITTLE GUIDANCE</div><h2>Look closer. Draw freely.</h2><div class="guide"><p><b>01 · Bring your footage</b><br>Upload a video from your device. H.264 MP4 is recommended for iPad Safari.</p><p><b>02 · Find your frame</b><br>Use the arrow controls or drag the timeline. Set the source frame rate in the player. Zoom the timeline to reveal individual frames.</p><p><b>03 · Leave your mark</b><br>Use your Apple Pencil, touch, or mouse. Sketches belong to the current frame. Add, rename, hide, lock, and fade layers.</p><p><b>04 · Review a range</b><br>Go to a frame and press A. Go to another and press B. Play the range once or switch on looping. Mark important frames with the flag.</p><p><b>05 · Keep it safe</b><br>Projects autosave in this browser. Export a project backup including its media to move it between devices.</p><p class="muted">Keyboard: Space play/pause · ← / → step · A / B range · M highlight · D brush · E eraser · Ctrl/⌘ Z undo</p></div>`,
+    `<div class="eyebrow">A LITTLE GUIDANCE</div><h2>Look closer. Draw freely.</h2><div class="guide"><p><b>01 · Bring your footage</b><br>Upload a video from your device. H.264 MP4 is recommended for iPad Safari.</p><p><b>02 · Find your frame</b><br>Use the arrow controls or drag the timeline. Set the source frame rate in the player. Zoom the timeline to reveal individual frames.</p><p><b>03 · Leave your mark</b><br>Use your Apple Pencil, touch, or mouse. Sketches belong to the current frame. Add, rename, hide, lock, and fade layers.</p><p><b>04 · Review a range</b><br>Go to a frame and press A. Go to another and press B. Play the range once or switch on looping. Mark important frames with the flag.</p><p><b>05 · Keep it safe</b><br>Projects autosave in this browser. Export a project backup including its media to move it between devices.</p><p class="muted">Keyboard: Space play/pause · ← / → step · A / B range · M highlight · D brush · F eraser · W/E/R/T sphere move/rotate/scale/free transform · S key · Q hide gizmo · Ctrl/⌘ Z undo</p></div>`,
     true,
   );
 }
@@ -404,7 +414,7 @@ async function openProject(id) {
   }
 }
 function renderEditor() {
-  app.innerHTML = `<div class="editor-shell"><header class="editor-header"><button id="back-home" class="brand compact" title="Back to projects">${icon("logo", 28)}</button><span class="header-divider"></span><button id="breadcrumbs" class="text-button">Projects ${icon("arrow", 13)}</button><button id="rename-project" class="project-name">${esc(project.name)} ${icon("pencil", 13)}</button><span class="save-chip">${icon("check", 13)} <span id="save-status">Saved on this device</span></span><div class="header-actions"><button id="attach" class="text-button">${icon("upload", 16)} Replace video</button><button id="export" class="secondary">${icon("download", 16)} Export project</button>${button("help", "Quick guide", "help")}</div></header><div class="editor-body"><aside class="drawing-tools"><div class="tool-group">${button("brush", "Brush (D)", "brush", "selected")}${button("eraser", "Eraser (E)", "eraser")}</div><div class="tool-divider"></div><label class="color-control" title="Brush color"><input id="color" type="color" value="${color}" aria-label="Brush color"/><span style="background:${color}"></span></label><div class="swatches">${["#d3fa84", "#ff7c78", "#a9baff", "#ffffff"].map((c) => `<button data-color="${c}" style="--swatch:${c}" title="Use ${c}" aria-label="Use ${c}"></button>`).join("")}</div><div class="tool-divider"></div><label class="size-control"><span id="size-label">${brushSize}</span><input id="brush-size" aria-label="Brush size" type="range" min="1" max="40" value="${brushSize}"/></label><span class="tool-caption">SIZE</span><div class="tool-divider"></div>${button("undo", "Undo (⌘Z)", "undo")}${button("redo", "Redo (⌘⇧Z)", "redo")}<div class="tool-spacer"></div>${button("download", "Export current frame", "export-frame")}</aside><main class="review-main"><div class="viewer-topline"><span>${icon("film", 14)} <span id="media-name">${esc(project.media?.name?.split("/").pop() || "Video")}</span></span><div><span class="live-dot"></span><span id="viewer-state">LOADING MEDIA</span></div></div><div class="viewer" id="viewer"><div class="media-stage" id="media-stage"><video id="video" playsinline preload="auto"></video><canvas id="gif-canvas" hidden></canvas><canvas id="drawing-canvas"></canvas></div><div class="viewer-loading" id="viewer-loading"><span class="spinner"></span><span>Preparing your canvas…</span></div><div class="frame-badge" id="frame-badge">FRAME <b>0000</b></div><div class="viewer-zoom"><button id="zoom-out" aria-label="Zoom viewer out">−</button><span id="zoom-label">Fit</span><button id="zoom-in" aria-label="Zoom viewer in">+</button><button id="fit" aria-label="Fit video">${icon("expand", 14)}</button></div></div><div class="transport"><div class="transport-left"><span class="timecode" id="timecode">00:00:00:00</span><span class="transport-separator"></span><label class="fps-label"><select id="fps" aria-label="Source frame rate">${[12, 15, 23.976, 24, 25, 29.97, 30, 50, 59.94, 60].map((n) => `<option value="${n}" ${fps === n ? "selected" : ""}>${n} fps</option>`).join("")}</select></label></div><div class="play-controls">${button("prev", "Previous frame (←)", "prev")}${button("play", "Play / pause (Space)", "play", "play-button")}${button("next", "Next frame (→)", "next")}</div><div class="transport-right">${button("volume", "Mute audio", "mute")}<input id="volume" type="range" min="0" max="1" step="0.05" value="1" aria-label="Audio volume"/><span id="total-frames">— frames</span></div></div><section class="timeline-section"><div class="timeline-header"><div class="timeline-title">${icon("film", 16)} Timeline <span id="timeline-duration">—</span></div><div class="timeline-actions"><button id="mark-a" class="marker-button" title="Set range start to current frame (A)">A <span id="a-label">IN</span></button><button id="mark-b" class="marker-button" title="Set range end to current frame (B)">B <span id="b-label">OUT</span></button><button id="clear-range" class="text-button small" title="Clear A–B range">Reset</button><span class="transport-separator"></span>${button("loop", "Toggle loop", "loop", project.loop ? "selected" : "")}${button("marker", "Highlight current frame (M)", "highlight")}<span class="transport-separator"></span><span class="zoom-caption">−</span><input id="timeline-zoom" type="range" min="1" max="32" value="${timelineZoom}" aria-label="Timeline zoom"/><span class="zoom-caption">+</span></div></div><div id="timeline-scroll" class="timeline-scroll"><div id="timeline-track" class="timeline-track"><div id="ruler" class="ruler"></div><div class="filmstrip" id="filmstrip"></div><canvas id="waveform" height="42"></canvas><div id="range-overlay" class="range-overlay"></div><div id="markers" class="markers"></div><div id="playhead" class="playhead"><div class="playhead-tab"></div></div></div></div><div class="timeline-footer"><span id="frame-position">Frame 0 / —</span><span id="wave-status">Preparing waveform</span><span>Drag to scrub <span class="tiny-dot"></span> Zoom for individual frames</span></div></section></main><aside class="layers-panel"><div class="layers-heading"><h3>Sketch layers</h3>${button("plus", "Add sketch layer", "add-layer")}</div><p class="layers-caption">A little clarity, frame by frame.</p><div id="layer-list" class="layer-list"></div><div class="layer-settings" id="layer-settings"></div><div class="layer-note">${icon("brush", 24)}<p>Every frame is a fresh canvas.</p><span>Sketches stay on the frame<br>where you draw them.</span></div><div class="review-summary"><span class="eyebrow">REVIEW NOTES</span><div><span id="annotated-count">0</span> annotated frames</div><button id="next-note" class="text-button">Next annotated frame ${icon("arrow", 14)}</button></div></aside></div><footer class="editor-footer"><span><span class="live-dot"></span> <span id="tool-status">Brush</span> <span class="footer-hint">· Draw with touch, Pencil or mouse</span></span><span id="selection-status">Sketch 01</span><span>FRAMESKETCH <span class="brand-dot">/</span> REVIEW STUDIO</span></footer></div>`;
+  app.innerHTML = `<div class="editor-shell"><header class="editor-header"><button id="back-home" class="brand compact" title="Back to projects">${icon("logo", 28)}</button><span class="header-divider"></span><button id="breadcrumbs" class="text-button">Projects ${icon("arrow", 13)}</button><button id="rename-project" class="project-name">${esc(project.name)} ${icon("pencil", 13)}</button><span class="save-chip">${icon("check", 13)} <span id="save-status">Saved on this device</span></span><div class="header-actions"><button id="attach" class="text-button">${icon("upload", 16)} Replace video</button><button id="export" class="secondary">${icon("download", 16)} Export project</button>${button("help", "Quick guide", "help")}</div></header><div class="editor-body"><aside class="drawing-tools"><div class="tool-group">${button("brush", "Brush (D)", "brush", "selected")}${button("eraser", "Eraser (F)", "eraser")}</div><div class="tool-divider"></div><label class="color-control" title="Brush color"><input id="color" type="color" value="${color}" aria-label="Brush color"/><span style="background:${color}"></span></label><div class="swatches">${["#d3fa84", "#ff7c78", "#a9baff", "#ffffff"].map((c) => `<button data-color="${c}" style="--swatch:${c}" title="Use ${c}" aria-label="Use ${c}"></button>`).join("")}</div><div class="tool-divider"></div><label class="size-control"><span id="size-label">${brushSize}</span><input id="brush-size" aria-label="Brush size" type="range" min="1" max="40" value="${brushSize}"/></label><span class="tool-caption">SIZE</span><div class="tool-divider"></div>${button("undo", "Undo (⌘Z)", "undo")}${button("redo", "Redo (⌘⇧Z)", "redo")}<div class="tool-spacer"></div>${button("download", "Export current frame", "export-frame")}</aside><main class="review-main"><div class="viewer-topline"><span>${icon("film", 14)} <span id="media-name">${esc(project.media?.name?.split("/").pop() || "Video")}</span></span><div><span class="live-dot"></span><span id="viewer-state">LOADING MEDIA</span></div></div><div class="viewer" id="viewer"><div class="media-stage" id="media-stage"><video id="video" playsinline preload="auto"></video><canvas id="gif-canvas" hidden></canvas><canvas id="drawing-canvas"></canvas></div><div class="viewer-loading" id="viewer-loading"><span class="spinner"></span><span>Preparing your canvas…</span></div><div class="frame-badge" id="frame-badge">FRAME <b>0000</b></div><div class="viewer-zoom"><button id="zoom-out" aria-label="Zoom viewer out">−</button><span id="zoom-label">Fit</span><button id="zoom-in" aria-label="Zoom viewer in">+</button><button id="fit" aria-label="Fit video">${icon("expand", 14)}</button></div></div><div class="transport"><div class="transport-left"><span class="timecode" id="timecode">00:00:00:00</span><span class="transport-separator"></span><label class="fps-label"><select id="fps" aria-label="Source frame rate">${[12, 15, 23.976, 24, 25, 29.97, 30, 50, 59.94, 60].map((n) => `<option value="${n}" ${fps === n ? "selected" : ""}>${n} fps</option>`).join("")}</select></label></div><div class="play-controls">${button("prev", "Previous frame (←)", "prev")}${button("play", "Play / pause (Space)", "play", "play-button")}${button("next", "Next frame (→)", "next")}</div><div class="transport-right">${button("volume", "Mute audio", "mute")}<input id="volume" type="range" min="0" max="1" step="0.05" value="1" aria-label="Audio volume"/><span id="total-frames">— frames</span></div></div><section class="timeline-section"><div class="timeline-header"><div class="timeline-title">${icon("film", 16)} Timeline <span id="timeline-duration">—</span></div><div class="timeline-actions"><button id="mark-a" class="marker-button" title="Set range start to current frame (A)">A <span id="a-label">IN</span></button><button id="mark-b" class="marker-button" title="Set range end to current frame (B)">B <span id="b-label">OUT</span></button><button id="clear-range" class="text-button small" title="Clear A–B range">Reset</button><span class="transport-separator"></span>${button("loop", "Toggle loop", "loop", project.loop ? "selected" : "")}${button("marker", "Highlight current frame (M)", "highlight")}<span class="transport-separator"></span><span class="zoom-caption">−</span><input id="timeline-zoom" type="range" min="1" max="32" value="${timelineZoom}" aria-label="Timeline zoom"/><span class="zoom-caption">+</span></div></div><div id="timeline-scroll" class="timeline-scroll"><div id="timeline-track" class="timeline-track"><div id="ruler" class="ruler"></div><div class="filmstrip" id="filmstrip"></div><canvas id="waveform" height="42"></canvas><div id="range-overlay" class="range-overlay"></div><div id="markers" class="markers"></div><div id="playhead" class="playhead"><div class="playhead-tab"></div></div></div></div><div class="timeline-footer"><span id="frame-position">Frame 0 / —</span><span id="wave-status">Preparing waveform</span><span>Drag to scrub <span class="tiny-dot"></span> Zoom for individual frames</span></div></section></main><aside class="layers-panel"><div class="layers-heading"><h3>Sketch layers</h3>${button("plus", "Add sketch layer", "add-layer")}</div><p class="layers-caption">A little clarity, frame by frame.</p><div id="layer-list" class="layer-list"></div><div class="layer-settings" id="layer-settings"></div><div class="layer-note">${icon("brush", 24)}<p>Every frame is a fresh canvas.</p><span>Sketches stay on the frame<br>where you draw them.</span></div><div class="review-summary"><span class="eyebrow">REVIEW NOTES</span><div><span id="annotated-count">0</span> annotated frames</div><button id="next-note" class="text-button">Next annotated frame ${icon("arrow", 14)}</button></div></aside></div><footer class="editor-footer"><span><span class="live-dot"></span> <span id="tool-status">Brush</span> <span class="footer-hint">· Draw with touch, Pencil or mouse</span></span><span id="selection-status">Sketch 01</span><span>FRAMESKETCH <span class="brand-dot">/</span> REVIEW STUDIO</span></footer></div>`;
   video = $("#video");
   $("#back-home").onclick = home;
   $("#breadcrumbs").onclick = home;
@@ -443,7 +453,9 @@ function renderEditor() {
     const time = frame / fps;
     fps = +e.target.value;
     frameThumbs.clear();
-    frameCount = Math.max(1, Math.ceil(duration * fps));
+    frameCount = project.clipRanges
+      ? rangeCount(project.clipRanges)
+      : Math.max(1, Math.ceil(duration * fps));
     project.a = null;
     project.b = null;
     project.highlights = [];
@@ -543,6 +555,7 @@ function renderEditor() {
       renderLayers();
     },
   });
+  mountVideoEdits();
   setupDrawing();
   renderLayers();
   setupTimeline();
@@ -625,13 +638,23 @@ async function loadVideo(source, token) {
     throw new Error(
       "Live streams cannot be reviewed frame by frame. Upload a recorded clip.",
     );
+  if (project.clipRanges) {
+    if (
+      project.clipRanges.some((r) => r.end >= Math.ceil(video.duration * fps))
+    )
+      throw new Error(
+        "The source video does not contain the saved slice range.",
+      );
+    duration = rangeCount(project.clipRanges) / fps;
+    $("#fps").disabled = true;
+  }
   video.onseeked = () => {
     if (!playing) draw();
   };
   video.onended = () => {
     if (project.loop) {
       const [a] = playbackRange(project.a, project.b, frameCount);
-      video.currentTime = a / fps;
+      video.currentTime = sourceFrame(project.clipRanges, a) / fps;
       video.play().catch(() => pause());
     } else {
       pause();
@@ -730,7 +753,9 @@ function renderGIF(time) {
 }
 function readyMedia() {
   mediaLoaded = true;
-  frameCount = Math.max(1, Math.ceil(duration * fps));
+  frameCount = project.clipRanges
+    ? rangeCount(project.clipRanges)
+    : Math.max(1, Math.ceil(duration * fps));
   frame = clamp(frame, 0, frameCount - 1);
   project.duration = duration;
   $("#viewer-loading").remove();
@@ -753,11 +778,20 @@ function resizeCanvas() {
   const viewer = $("#viewer"),
     stage = $("#media-stage"),
     [w, h] = mediaDimensions();
+  const crop = project.crop || { x: 0, y: 0, w: 1, h: 1 };
   const width = Math.min(
       viewer.clientWidth - 56,
-      ((viewer.clientHeight - 48) * w) / h,
+      ((viewer.clientHeight - 48) * w * crop.w) / (h * crop.h),
     ),
-    height = (width * h) / w;
+    height = (width * h * crop.h) / (w * crop.w);
+  stage.style.overflow = "hidden";
+  for (const el of stage.querySelectorAll("video,canvas")) {
+    el.style.position = "absolute";
+    el.style.width = `${100 / crop.w}%`;
+    el.style.height = `${100 / crop.h}%`;
+    el.style.left = `${(-100 * crop.x) / crop.w}%`;
+    el.style.top = `${(-100 * crop.y) / crop.h}%`;
+  }
   stage.style.width = `${width}px`;
   stage.style.height = `${height}px`;
   const canvas = $("#drawing-canvas");
@@ -776,7 +810,11 @@ function seek(n, stop = true) {
   if (stop) pause();
   frame = clamp(Math.round(n), 0, frameCount - 1);
   if (gif) renderGIF(frame / fps);
-  else video.currentTime = Math.min(frame / fps + 0.0001, duration - 0.0001);
+  else
+    video.currentTime = Math.min(
+      sourceFrame(project.clipRanges, frame) / fps + 0.0001,
+      video.duration - 0.0001,
+    );
   updateFrame();
   draw();
   persist();
@@ -837,15 +875,28 @@ async function togglePlay() {
     if (!playing) return;
     const time = gif
       ? playbackTime + (now - playbackStart) / 1000
-      : video.currentTime;
+      : project.clipRanges
+        ? (logicalFrame(
+            project.clipRanges,
+            Math.floor(video.currentTime * fps),
+          ) ?? frame + 1) / fps
+        : video.currentTime;
     frame = frameAt(time, fps, frameCount);
+    if (
+      !gif &&
+      project.clipRanges &&
+      logicalFrame(project.clipRanges, Math.floor(video.currentTime * fps)) ===
+        null &&
+      time < (end + 1) / fps
+    )
+      video.currentTime = sourceFrame(project.clipRanges, frame) / fps;
     if (time >= (end + 1) / fps || (!gif && video.ended)) {
       if (project.loop) {
         frame = start;
         playbackStart = now;
         playbackTime = start / fps;
         if (!gif) {
-          video.currentTime = start / fps;
+          video.currentTime = sourceFrame(project.clipRanges, start) / fps;
           video.play().catch(() => pause());
         }
       } else {
@@ -1004,7 +1055,10 @@ async function loadVisibleFrames() {
       } else {
         const v = frameDecoder;
         if (!v) break;
-        v.currentTime = Math.min(duration - 0.001, n / fps + 0.0001);
+        v.currentTime = Math.min(
+          v.duration - 0.001,
+          sourceFrame(project.clipRanges, n) / fps + 0.0001,
+        );
         await new Promise((resolve, reject) => {
           const timer = setTimeout(() => reject(new Error("seek")), 3000);
           v.onseeked = () => {
@@ -1091,36 +1145,42 @@ function updateMarkers() {
   );
 }
 function setupTimeline() {
-  let dragging = false;
+  let gesture = null;
   $("#timeline-scroll").onscroll = () => renderFilmstrip();
   const track = $("#timeline-track");
-  const scrub = (e) => {
-    const rect = track.getBoundingClientRect();
-    if (reviewTools)
-      reviewTools.timeline((e.clientX - rect.left) / timelineZoom);
-    else seek((e.clientX - rect.left) / timelineZoom);
-  };
+  const frameFrom = (e) =>
+    clamp(
+      Math.floor(
+        (e.clientX - track.getBoundingClientRect().left) / timelineZoom,
+      ),
+      0,
+      frameCount - 1,
+    );
   track.onpointerdown = (e) => {
     if (!mediaLoaded || e.button !== 0 || e.target.closest("button")) return;
     if (e.pointerType !== "touch") e.preventDefault();
     window.getSelection()?.removeAllRanges();
-    if (e.pointerType === "touch" && !e.target.closest(".ruler")) {
-      scrub(e);
-      return;
-    }
-    if (reviewTools?.groupMode) {
-      scrub(e);
-      return;
-    }
-    dragging = true;
-    track.setPointerCapture(e.pointerId);
-    scrub(e);
+    gesture = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false };
+    if (e.pointerType !== "touch" || e.target.closest(".ruler"))
+      track.setPointerCapture(e.pointerId);
+    seek(frameFrom(e));
   };
   track.onpointermove = (e) => {
-    if (dragging) scrub(e);
+    if (!gesture || gesture.id !== e.pointerId) return;
+    if (Math.hypot(e.clientX - gesture.x, e.clientY - gesture.y) > 4)
+      gesture.moved = true;
+    if (gesture.moved) seek(frameFrom(e));
   };
-  track.onpointerup = () => (dragging = false);
-  track.onpointercancel = () => (dragging = false);
+  track.onpointerup = (e) => {
+    if (!gesture || gesture.id !== e.pointerId) return;
+    const moved = gesture.moved;
+    gesture = null;
+    if (!moved)
+      reviewTools ? reviewTools.timeline(frameFrom(e)) : seek(frameFrom(e));
+  };
+  track.onpointercancel = () => {
+    gesture = null;
+  };
 }
 function scrollToFrame(center = true) {
   const sc = $("#timeline-scroll");
@@ -1150,8 +1210,11 @@ async function generateThumbnails(token) {
     for (let i = 0; i < count; i++) {
       if (token !== routeToken) break;
       v.currentTime = Math.min(
-        duration - 0.01,
-        ((i + 0.05) / count) * duration,
+        v.duration - 0.01,
+        sourceFrame(
+          project.clipRanges,
+          Math.floor(((i + 0.05) / count) * frameCount),
+        ) / fps,
       );
       await new Promise((resolve, reject) => {
         const timer = setTimeout(
@@ -1203,12 +1266,28 @@ async function makeWaveform(source, token) {
     if (token !== routeToken) return;
     const samples = audio.getChannelData(0),
       count = 1600,
-      step = Math.max(1, Math.floor(samples.length / count));
+      step = Math.max(
+        1,
+        Math.floor(
+          (project.clipRanges ? duration * audio.sampleRate : samples.length) /
+            count,
+        ),
+      );
     waveform = Array.from({ length: count }, (_, i) => {
       let peak = 0;
+      const start = project.clipRanges
+        ? Math.floor(
+            (sourceFrame(
+              project.clipRanges,
+              Math.floor((i / count) * frameCount),
+            ) /
+              fps) *
+              audio.sampleRate,
+          )
+        : i * step;
       for (
-        let j = i * step;
-        j < Math.min((i + 1) * step, samples.length);
+        let j = start;
+        j < Math.min(start + step, samples.length);
         j += Math.max(1, Math.floor(step / 100))
       )
         peak = Math.max(peak, Math.abs(samples[j]));
@@ -1569,6 +1648,206 @@ async function importProject(file) {
     toast(e.message, true);
   }
 }
+function mountVideoEdits() {
+  const actions = $(".header-actions");
+  const b = document.createElement("button");
+  b.id = "video-edits";
+  b.className = "secondary";
+  b.textContent = "Crop / Slice";
+  actions.prepend(b);
+  b.onclick = videoEditDialog;
+}
+function videoEditDialog() {
+  if (!mediaLoaded || gif) {
+    toast("Upload a video to crop or slice.");
+    return;
+  }
+  pause();
+  const original = project.clipRanges || [
+      { id: uid(), start: 0, end: frameCount - 1 },
+    ],
+    crop = project.crop || { x: 0, y: 0, w: 1, h: 1 };
+  const el = modal(
+    `<h2>Crop & slices</h2><p>Edits preserve your original upload. Slice at the current frame, then keep, delete, or send a piece to a new project.</p><h3 class="edit-heading">Crop review area</h3><div class="crop-fields">${[
+      ["x", "Left"],
+      ["y", "Top"],
+      ["w", "Width"],
+      ["h", "Height"],
+    ]
+      .map(
+        ([k, label]) =>
+          `<label>${label} %<input id="crop-${k}" type="number" min="${k === "w" || k === "h" ? 1 : 0}" max="100" value="${Math.round(crop[k] * 100)}"/></label>`,
+      )
+      .join(
+        "",
+      )}</div><div class="sphere-buttons"><button id="apply-crop" class="primary">Apply crop</button><button id="reset-crop" class="secondary">Reset crop</button></div><div id="edit-error" class="form-error"></div><h3 class="edit-heading">Video slices · current frame ${frame}</h3><button id="split-video" class="secondary">Slice at current frame</button><button id="restore-video" class="text-button" ${project.editOriginal ? "" : "disabled"}>Restore before slicing</button><div class="slice-list">${original.map((r, i) => `<div class="slice-row"><span>Slice ${i + 1} · ${r.end - r.start + 1} frames</span><button class="secondary" data-new-slice="${i}">New project</button><button class="text-button" data-delete-slice="${i}" ${original.length === 1 ? "disabled" : ""}>Delete</button></div>`).join("")}</div><p>Deleting a slice removes it from this project’s playback. A new slice project keeps the uploaded media, crop, sketches and sphere keys. Export projects as backups.</p>`,
+    true,
+  );
+  $("#apply-crop").onclick = () => {
+    const c = Object.fromEntries(
+      ["x", "y", "w", "h"].map((k) => [k, +$("#crop-" + k).value / 100]),
+    );
+    if (
+      Object.values(c).some((v) => !Number.isFinite(v)) ||
+      c.x < 0 ||
+      c.y < 0 ||
+      c.w <= 0 ||
+      c.h <= 0 ||
+      c.x + c.w > 1.00001 ||
+      c.y + c.h > 1.00001
+    ) {
+      $("#edit-error").textContent =
+        "Keep the crop rectangle inside the video.";
+      return;
+    }
+    project.crop = c;
+    resizeCanvas();
+    persist();
+    el.remove();
+  };
+  $("#reset-crop").onclick = () => {
+    delete project.crop;
+    resizeCanvas();
+    persist();
+    el.remove();
+  };
+  const apply = async (ranges) => {
+    if (!project.editOriginal)
+      project.editOriginal = structuredClone({
+        layers: project.layers,
+        groups: project.groups,
+        spheres: project.spheres,
+        highlights: project.highlights,
+        frame: project.frame,
+        clipRanges: project.clipRanges || null,
+      });
+    remapProject(project, original, ranges);
+    frameCount = rangeCount(ranges);
+    duration = frameCount / fps;
+    $("#fps").disabled = true;
+    frameThumbs.clear();
+    thumbs = [];
+    waveform = [];
+    makeWaveform(video.src, routeToken);
+    undo = [];
+    redo = [];
+    updateHistory();
+    $("#total-frames").textContent = `${frameCount} frames`;
+    $("#timeline-duration").textContent = `${duration.toFixed(2)}s`;
+    resizeCanvas();
+    buildTimeline();
+    seek(project.frame);
+    await persist(true);
+  };
+  $("#restore-video").onclick = async () => {
+    if (
+      !confirm(
+        "Restore the timeline and annotations saved before slicing? Edits made after slicing will be replaced.",
+      )
+    )
+      return;
+    const backup = project.editOriginal;
+    Object.assign(
+      project,
+      structuredClone(
+        Object.fromEntries(
+          [
+            "layers",
+            "groups",
+            "spheres",
+            "highlights",
+            "frame",
+            "clipRanges",
+          ].map((k) => [k, backup[k]]),
+        ),
+      ),
+    );
+    delete project.editOriginal;
+    if (!project.clipRanges) delete project.clipRanges;
+    duration = project.clipRanges
+      ? rangeCount(project.clipRanges) / fps
+      : video.duration;
+    frameCount = project.clipRanges
+      ? rangeCount(project.clipRanges)
+      : Math.ceil(duration * fps);
+    $("#fps").disabled = !!project.clipRanges;
+    project.a = project.b = null;
+    activeLayer = project.layers[0].id;
+    reviewTools.active = project.spheres?.[0]?.id;
+    reviewTools.sphereMode = false;
+    undo = [];
+    redo = [];
+    frameThumbs.clear();
+    thumbs = [];
+    waveform = [];
+    makeWaveform(video.src, routeToken);
+    renderLayers();
+    resizeCanvas();
+    buildTimeline();
+    seek(project.frame);
+    $("#total-frames").textContent = `${frameCount} frames`;
+    $("#timeline-duration").textContent = `${duration.toFixed(2)}s`;
+    await persist(true);
+    el.remove();
+  };
+  $("#split-video").onclick = async () => {
+    const source = sourceFrame(original, frame),
+      index = original.findIndex((r) => source >= r.start && source <= r.end),
+      r = original[index];
+    if (source === r.start) {
+      $("#edit-error").textContent = "Step inside the slice before cutting.";
+      return;
+    }
+    const ranges = structuredClone(original);
+    ranges.splice(
+      index,
+      1,
+      { id: uid(), start: r.start, end: source - 1 },
+      { id: uid(), start: source, end: r.end },
+    );
+    await apply(ranges);
+    el.remove();
+    videoEditDialog();
+  };
+  el.querySelectorAll("[data-delete-slice]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        if (
+          !confirm(
+            "Delete this slice from project playback? The original upload is kept.",
+          )
+        )
+          return;
+        await apply(original.filter((_, i) => i !== +b.dataset.deleteSlice));
+        el.remove();
+        videoEditDialog();
+      }),
+  );
+  el.querySelectorAll("[data-new-slice]").forEach(
+    (b) =>
+      (b.onclick = async () => {
+        try {
+          const p = structuredClone(project),
+            r = original[+b.dataset.newSlice];
+          p.id = uid();
+          p.name = `${project.name} · Slice ${+b.dataset.newSlice + 1}`.slice(
+            0,
+            100,
+          );
+          p.created = p.updated = Date.now();
+          remapProject(p, original, [{ ...r, id: uid() }]);
+          p.frame = 0;
+          const blob = await storage.getMedia(project.id);
+          if (!blob) throw new Error("Source upload is missing.");
+          await storage.saveMedia(p.id, blob);
+          await storage.saveProject(p);
+          toast("Slice saved as a new project. Find it in Projects.");
+        } catch (error) {
+          $("#edit-error").textContent = error.message;
+        }
+      }),
+  );
+}
 async function exportFrame() {
   if (!mediaLoaded) return;
   pause();
@@ -1583,7 +1862,34 @@ async function exportFrame() {
   try {
     const ctx = c.getContext("2d");
     ctx.drawImage(gifCanvas || video, 0, 0, w, h);
+    const selected = reviewTools?.sphereMode;
+    if (reviewTools) reviewTools.sphereMode = false;
+    draw();
     ctx.drawImage($("#drawing-canvas"), 0, 0, w, h);
+    if (reviewTools) reviewTools.sphereMode = selected;
+    draw();
+    const crop = project.crop;
+    if (crop) {
+      const cropped = document.createElement("canvas");
+      cropped.width = Math.round(w * crop.w);
+      cropped.height = Math.round(h * crop.h);
+      cropped
+        .getContext("2d")
+        .drawImage(
+          c,
+          w * crop.x,
+          h * crop.y,
+          w * crop.w,
+          h * crop.h,
+          0,
+          0,
+          cropped.width,
+          cropped.height,
+        );
+      c.width = cropped.width;
+      c.height = cropped.height;
+      c.getContext("2d").drawImage(cropped, 0, 0);
+    }
     const blob = await new Promise((resolve) => c.toBlob(resolve, "image/png"));
     if (!blob) throw new Error("Frame unavailable");
     download(blob, `${project.name}-frame-${frame}.png`);
@@ -1617,7 +1923,13 @@ document.addEventListener("keydown", (e) => {
     s: () => reviewTools?.key(),
     m: highlight,
     d: () => selectTool("brush"),
-    e: () => selectTool("eraser"),
+    w: () => reviewTools?.setMode("move"),
+    e: () => reviewTools?.setMode("rotate"),
+    r: () => reviewTools?.setMode("scale"),
+    t: () => reviewTools?.setMode("warp"),
+    q: () => reviewTools?.deselect(),
+    escape: () => reviewTools?.deselect(),
+    f: () => selectTool("eraser"),
   };
   if (actions[key]) {
     e.preventDefault();

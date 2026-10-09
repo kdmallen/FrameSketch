@@ -19,7 +19,7 @@ test("sphere keys interpolate all attributes and hold before/after keys", () => 
   const s = { pose: a, keys: { 10: a, 20: b }, visible: true };
   const middle = spherePose(s, 15);
   assert.equal(middle.rx, 45);
-  assert.equal(middle.width, 0.37);
+  assert.equal(middle.width, 0.75);
   assert.equal(middle.skew, 0.2);
   assert.deepEqual(spherePose(s, 0), a);
   assert.deepEqual(spherePose(s, 30), b);
@@ -29,5 +29,30 @@ test("sphere keys interpolate all attributes and hold before/after keys", () => 
   p.sphere = s;
   validateProject(p);
   p.sphere.keys[20].width = Infinity;
+  assert.throws(() => validateProject(p));
+});
+import { sourceFrame, logicalFrame, remapProject } from "../src/video-edits.js";
+test("cuts remap frame annotations and retain shared drawings across removed group starts", () => {
+  const p = newProject("Cuts");
+  p.layers[0].frames[0] = [
+    {
+      id: "line",
+      tool: "brush",
+      size: 2,
+      color: "#ffffff",
+      points: [[0.5, 0.5, 0.5]],
+    },
+  ];
+  p.groups = [{ id: "group", start: 0, end: 3, color: "#a9baff" }];
+  const old = [{ id: "whole", start: 0, end: 5 }],
+    next = [{ id: "keep", start: 2, end: 5 }];
+  remapProject(p, old, next);
+  assert.equal(sourceFrame(next, 0), 2);
+  assert.equal(logicalFrame(next, 1), null);
+  assert.equal(p.groups[0].start, 0);
+  assert.equal(p.groups[0].end, 1);
+  assert.equal(p.layers[0].frames[0][0].id, "line");
+  validateProject(p);
+  p.crop = { x: 0.8, y: 0, w: 0.5, h: 1 };
   assert.throws(() => validateProject(p));
 });

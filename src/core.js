@@ -169,22 +169,57 @@ export function validateProject(p) {
         throw new Error("Invalid frame groups.");
     });
   }
-  if (p.sphere) {
-    const sphere = p.sphere;
+  if (
+    p.spheres !== undefined &&
+    (!Array.isArray(p.spheres) || p.spheres.length > 100)
+  )
+    throw new Error("Invalid sphere list.");
+  const sphereIds = new Set();
+  for (const sphere of [
+    ...(p.spheres || []),
+    ...(p.sphere ? [p.sphere] : []),
+  ]) {
+    if (p.spheres?.includes(sphere)) {
+      if (
+        typeof sphere.id !== "string" ||
+        !/^[a-zA-Z0-9-]+$/.test(sphere.id) ||
+        sphereIds.has(sphere.id)
+      )
+        throw new Error("Invalid sphere identity.");
+      sphereIds.add(sphere.id);
+      if (
+        !/^#[a-fA-F0-9]{6}$/.test(sphere.color) ||
+        !Number.isFinite(sphere.lineWidth) ||
+        sphere.lineWidth < 1 ||
+        sphere.lineWidth > 8
+      )
+        throw new Error("Invalid sphere style.");
+      if (
+        [sphere.baseWidth, sphere.baseHeight].some(
+          (v) => v !== undefined && (!Number.isFinite(v) || v <= 0 || v > 1),
+        )
+      )
+        throw new Error("Invalid sphere base size.");
+    }
     const validPose = (pose) =>
       pose &&
       ["x", "y", "width", "height", "rx", "ry", "rz", "skew"].every((k) =>
         Number.isFinite(pose[k]),
       ) &&
       pose.width >= 0.02 &&
-      pose.width <= 1 &&
+      pose.width <= 5 &&
       pose.height >= 0.02 &&
-      pose.height <= 1 &&
+      pose.height <= 5 &&
       pose.x >= 0 &&
       pose.x <= 1 &&
       pose.y >= 0 &&
       pose.y <= 1 &&
       Math.abs(pose.skew) <= 1 &&
+      ["tlx", "tly", "trx", "try", "blx", "bly", "brx", "bry"].every(
+        (k) =>
+          pose[k] === undefined ||
+          (Number.isFinite(pose[k]) && Math.abs(pose[k]) <= 2),
+      ) &&
       ["rx", "ry", "rz"].every((k) => Math.abs(pose[k]) <= 180);
     if (
       !validPose(sphere.pose) ||
@@ -207,6 +242,53 @@ export function validateProject(p) {
         !validPose(sphere.draft.pose))
     )
       throw new Error("Invalid sphere draft.");
+  }
+  if (p.crop) {
+    const c = p.crop;
+    if (
+      ["x", "y", "w", "h"].some((k) => !Number.isFinite(c[k])) ||
+      c.x < 0 ||
+      c.y < 0 ||
+      c.w <= 0 ||
+      c.h <= 0 ||
+      c.x + c.w > 1.00001 ||
+      c.y + c.h > 1.00001
+    )
+      throw new Error("Invalid video crop.");
+  }
+  if (p.clipRanges !== undefined && p.clipRanges !== null) {
+    if (
+      !Array.isArray(p.clipRanges) ||
+      !p.clipRanges.length ||
+      p.clipRanges.length > 10000
+    )
+      throw new Error("Invalid video slices.");
+    p.clipRanges.forEach((r, i) => {
+      if (
+        typeof r.id !== "string" ||
+        !Number.isInteger(r.start) ||
+        !Number.isInteger(r.end) ||
+        r.start < 0 ||
+        r.end < r.start ||
+        (i && r.start <= p.clipRanges[i - 1].end)
+      )
+        throw new Error("Invalid video slices.");
+    });
+  }
+  if (p.editOriginal) {
+    const backup = p.editOriginal;
+    if (!backup || typeof backup !== "object")
+      throw new Error("Invalid edit backup.");
+    validateProject({
+      ...p,
+      layers: backup.layers,
+      groups: backup.groups,
+      spheres: backup.spheres,
+      highlights: backup.highlights,
+      frame: backup.frame,
+      clipRanges: backup.clipRanges || undefined,
+      editOriginal: undefined,
+    });
   }
   if (p.media?.url) sourceType(p.media.url);
   return p;

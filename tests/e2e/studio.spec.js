@@ -290,15 +290,158 @@ test("sphere pose keys interpolate, restore and export with projects", async ({
   await expect(page.locator(".sphere-key")).toHaveCount(2);
   await expect(page.locator('[data-pose="ry"]')).toHaveValue("45");
 });
-test('scrubbing and grouping never select timeline text',async({page})=>{
- await sample(page);
- const ruler=await page.locator('#ruler').boundingBox();
- await page.mouse.move(ruler.x+5,ruler.y+12);await page.mouse.down();await page.mouse.move(ruler.x+150,ruler.y+12,{steps:12});await page.mouse.up();
- await expect(page.locator('#frame-position')).toHaveText('Frame 25 / 191');
- expect(await page.evaluate(()=>window.getSelection().toString())).toBe('');
- await page.locator('#group-mode').click();
- await page.mouse.move(ruler.x+18,ruler.y+12);await page.mouse.down();await page.mouse.move(ruler.x+90,ruler.y+12,{steps:12});await page.mouse.up();
- await page.mouse.click(ruler.x+42,ruler.y+12);
- await expect(page.locator('.frame-group')).toHaveCount(1);
- expect(await page.evaluate(()=>window.getSelection().toString())).toBe('');
+test("scrubbing and grouping never select timeline text", async ({ page }) => {
+  await sample(page);
+  const ruler = await page.locator("#ruler").boundingBox();
+  await page.mouse.move(ruler.x + 5, ruler.y + 12);
+  await page.mouse.down();
+  await page.mouse.move(ruler.x + 150, ruler.y + 12, { steps: 12 });
+  await page.mouse.up();
+  await expect(page.locator("#frame-position")).toHaveText("Frame 25 / 191");
+  expect(await page.evaluate(() => window.getSelection().toString())).toBe("");
+  await page.locator("#group-mode").click();
+  await page.mouse.move(ruler.x + 18, ruler.y + 12);
+  await page.mouse.down();
+  await page.mouse.move(ruler.x + 90, ruler.y + 12, { steps: 12 });
+  await page.mouse.up();
+  await expect(page.locator("#frame-position")).toHaveText("Frame 15 / 191");
+  await expect(page.locator(".frame-group")).toHaveCount(0);
+  await page.mouse.click(ruler.x + 18, ruler.y + 12);
+  await page.mouse.click(ruler.x + 42, ruler.y + 12);
+  await expect(page.locator(".frame-group")).toHaveCount(1);
+  expect(await page.evaluate(() => window.getSelection().toString())).toBe("");
+});
+test("multiple round spheres have separate keys, styles and contextual gizmos", async ({
+  page,
+}) => {
+  await sample(page);
+  await page.locator("#add-sphere").click();
+  await expect(page.locator('[data-pose="width"]')).toHaveValue("1");
+  await expect(page.locator('[data-pose="height"]')).toHaveValue("1");
+  await page.locator("#key-sphere").click();
+  await page.locator("#add-sphere").click();
+  await expect(page.locator(".sphere-row")).toHaveCount(2);
+  await page.locator('[data-pose="x"]').fill("0.75");
+  await page.locator('[data-pose="x"]').dispatchEvent("input");
+  await page.locator("#sphere-line").fill("4");
+  await page.locator("#sphere-line").dispatchEvent("input");
+  await page.locator("#sphere-color").fill("#ff0000");
+  await page.locator("#sphere-color").dispatchEvent("input");
+  await page.locator("#key-sphere").click();
+  await expect(
+    page.locator(".sphere-row").nth(0).locator(".sphere-key"),
+  ).toHaveCount(1);
+  await expect(
+    page.locator(".sphere-row").nth(1).locator(".sphere-key"),
+  ).toHaveCount(1);
+  await page.locator("#sphere-color").blur();
+  await page.keyboard.press("r");
+  await expect(page.locator('[data-mode="scale"]')).toHaveClass(/selected/);
+  await page.locator("#media-name").click();
+  await expect(page.locator('[data-mode="scale"]')).not.toHaveClass(/selected/);
+  await page.locator('[data-pose="width"]').click();
+  await expect(page.locator('[data-mode="scale"]')).toHaveClass(/selected/);
+  await page.locator("#sphere-list").selectOption({ index: 0 });
+  await expect(page.locator("#sphere-line")).toHaveValue("1");
+  await expect(page.locator('[data-pose="x"]')).toHaveValue("0.5");
+});
+test("crop and slices create independent projects and delete playback pieces", async ({
+  page,
+}) => {
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await sample(page);
+  await page.locator("#next").click();
+  await page.locator("#next").click();
+  await page.locator("#video-edits").click();
+  await page.locator("#split-video").click();
+  await expect(page.locator(".slice-row")).toHaveCount(2);
+  await page.locator('[data-new-slice="1"]').click();
+  await expect(page.locator("#toast")).toContainText("Slice saved");
+  page.once("dialog", (d) => d.accept());
+  await page.locator('[data-delete-slice="0"]').click();
+  await expect(page.locator(".slice-row")).toHaveCount(1);
+  await page.locator("#crop-x").fill("25");
+  await page.locator("#crop-w").fill("50");
+  await page.locator("#apply-crop").click();
+  await expect(page.locator("#frame-position")).toHaveText("Frame 0 / 189");
+  await expect
+    .poll(() => page.locator("#video").evaluate((v) => v.currentTime))
+    .toBeGreaterThan(0.08);
+  const r = await page.locator("#media-stage").boundingBox();
+  expect(r.width / r.height).toBeCloseTo(480 / 540, 1);
+  const backup = page.waitForEvent("download");
+  await page.locator("#export").click();
+  await (await backup).saveAs("/tmp/framesketch-cut.framesketch");
+  await page.locator("#back-home").click();
+  await expect(page.locator(".project-card")).toHaveCount(2);
+  await page
+    .getByRole("button", { name: /Open Motion study.*Slice 2/ })
+    .click();
+  await expect(page.locator("#viewer-state")).toHaveText("READY TO REVIEW");
+  await expect(page.locator("#frame-position")).toHaveText("Frame 0 / 189");
+  await page.locator("#next").click();
+  await expect
+    .poll(() => page.locator("#video").evaluate((v) => v.currentTime))
+    .toBeGreaterThan(0.12);
+  await page.locator("#back-home").click();
+  await page
+    .locator("#import-file")
+    .setInputFiles("/tmp/framesketch-cut.framesketch");
+  await expect(page.locator("#viewer-state")).toHaveText("READY TO REVIEW");
+  await expect(page.locator("#frame-position")).toHaveText("Frame 0 / 189");
+  await page.locator("#video-edits").click();
+  page.once("dialog", (d) => d.accept());
+  await page.locator("#restore-video").click();
+  await expect(page.locator("#frame-position")).toHaveText("Frame 2 / 191");
+  expect(errors).toEqual([]);
+});
+test("gizmo free move, uniform scaling and corner warping change the selected sphere", async ({
+  page,
+}) => {
+  await sample(page);
+  await page.locator("#add-sphere").click();
+  const r = await page.locator("#drawing-canvas").boundingBox();
+  const drag = async (x, y, dx, dy) => {
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + dx, y + dy, { steps: 8 });
+    await page.mouse.up();
+  };
+  await drag(r.x + r.width / 2, r.y + r.height / 2, 30, 0);
+  await expect
+    .poll(async () =>
+      Number(await page.locator('[data-pose="x"]').inputValue()),
+    )
+    .toBeGreaterThan(0.5);
+  await page.keyboard.press("r");
+  const x = Number(await page.locator('[data-pose="x"]').inputValue());
+  await drag(r.x + r.width * x, r.y + r.height / 2, 20, -10);
+  await expect
+    .poll(async () =>
+      Number(await page.locator('[data-pose="width"]').inputValue()),
+    )
+    .toBeGreaterThan(1);
+  await page.keyboard.press("t");
+  const width = Number(await page.locator('[data-pose="width"]').inputValue()),
+    height = Number(await page.locator('[data-pose="height"]').inputValue()),
+    base = 0.3 * Math.min(r.width, r.height);
+  await drag(
+    r.x + r.width * x - (base * width) / 2,
+    r.y + r.height / 2 - (base * height) / 2,
+    -15,
+    -10,
+  );
+  await page.keyboard.press("s");
+  const download = page.waitForEvent("download");
+  await page.locator("#export").click();
+  const file = await download;
+  await file.saveAs("/tmp/framesketch-warp.framesketch");
+  const data = JSON.parse(
+    await (
+      await import("node:fs/promises")
+    ).readFile("/tmp/framesketch-warp.framesketch", "utf8"),
+  );
+  expect(data.project.spheres[0].keys[0].tlx).toBeLessThan(0);
+  expect(data.project.spheres[0].keys[0].tly).toBeLessThan(0);
 });

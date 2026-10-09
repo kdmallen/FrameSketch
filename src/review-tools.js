@@ -5,12 +5,20 @@ export const drawingFrame = (p, n) => groupAt(p, n)?.start ?? n;
 export const defaultPose = () => ({
   x: 0.5,
   y: 0.5,
-  width: 0.24,
-  height: 0.38,
+  width: 1,
+  height: 1,
   rx: 0,
   ry: 0,
   rz: 0,
   skew: 0,
+  tlx: 0,
+  tly: 0,
+  trx: 0,
+  try: 0,
+  blx: 0,
+  bly: 0,
+  brx: 0,
+  bry: 0,
 });
 export function spherePose(s, n) {
   if (s.draft?.frame === n) return { ...s.draft.pose };
@@ -24,7 +32,11 @@ export function spherePose(s, n) {
     a = s.keys[left],
     b = s.keys[right];
   return Object.fromEntries(
-    Object.keys(defaultPose()).map((k) => [k, a[k] + (b[k] - a[k]) * t]),
+    Object.keys(defaultPose()).map((k) => [
+      k,
+      (a[k] ?? defaultPose()[k]) +
+        ((b[k] ?? defaultPose()[k]) - (a[k] ?? defaultPose()[k])) * t,
+    ]),
   );
 }
 const colors = ["#a9baff", "#ffbc75", "#85dbba", "#e8a4d9", "#bada78"];
@@ -34,8 +46,48 @@ export class ReviewTools {
     this.groupMode = false;
     this.anchor = null;
     this.sphereMode = false;
+    this.mode = "move";
     const p = api.project();
     p.groups ||= [];
+    if (!p.spheres) {
+      p.spheres = [];
+      if (p.sphere) {
+        const old = p.sphere;
+        const convert = (pose) => ({
+          ...defaultPose(),
+          ...pose,
+          width: pose.width / 0.24,
+          height: pose.height / 0.38,
+        });
+        old.pose = convert(old.pose);
+        Object.keys(old.keys).forEach(
+          (k) => (old.keys[k] = convert(old.keys[k])),
+        );
+        if (old.draft) old.draft.pose = convert(old.draft.pose);
+        p.spheres.push({
+          ...old,
+          id: uid(),
+          name: "Sphere 1",
+          baseWidth: 0.24,
+          baseHeight: 0.38,
+          color: "#d3fa84",
+          lineWidth: 1,
+        });
+        delete p.sphere;
+      }
+    }
+    this.active = p.spheres[0]?.id;
+    this.outside = (e) => {
+      if (
+        e.target.closest(".sphere-panel") ||
+        e.target.closest("#drawing-canvas") ||
+        e.target.closest(".sphere-track")
+      )
+        return;
+      this.deselect();
+    };
+    document.addEventListener("pointerdown", this.outside);
+
     this.mount();
   }
   mount() {
@@ -110,49 +162,95 @@ export class ReviewTools {
     const groupOverlay = document.createElement("div");
     groupOverlay.id = "frame-groups";
     track.append(groupOverlay);
+    const slices = document.createElement("div");
+    slices.id = "video-slices";
+    track.append(slices);
     const panel = document.createElement("section");
     panel.className = "sphere-panel";
-    panel.innerHTML =
-      '<div class="sphere-title"><strong>Guide sphere</strong><button id="add-sphere" class="secondary">Add sphere</button></div><div id="sphere-controls" hidden><div class="sphere-buttons"><button id="sphere-edit" class="secondary">Edit on canvas</button><button id="sphere-visible" class="secondary">Hide</button><button id="key-sphere" class="primary">Key · S</button></div><p>Drag to move · Shift-drag to rotate. Use handles to scale. S keys every attribute.</p><div id="sphere-fields"></div><div class="sphere-buttons"><button id="delete-key" class="text-button">Delete current key</button><button id="remove-sphere" class="text-button">Remove sphere</button></div><div class="sphere-legend">T top · B bottom · L left · R right · F front · K back</div></div>';
+    panel.innerHTML = `<div class="sphere-title"><strong>Guide spheres</strong><button id="add-sphere" class="secondary">Add sphere</button></div><select id="sphere-list" aria-label="Select sphere"></select><div id="sphere-controls" hidden><div class="sphere-buttons"><button id="sphere-edit" class="secondary">Select / Edit</button><button id="sphere-visible" class="secondary">Hide</button><button id="key-sphere" class="primary">Key · S</button></div><div class="gizmo-modes">${["move", "rotate", "scale", "warp"].map((mode, i) => `<button data-mode="${mode}" title="${["W", "E", "R", "T"][i]}">${["Move W", "Rotate E", "Scale R", "Free T"][i]}</button>`).join("")}</div><p>Use axis handles or the inner control for free movement/rotation. Click outside to hide controls.</p><div id="sphere-fields"></div><label class="sphere-style">Line thickness<input id="sphere-line" aria-label="Sphere line thickness" type="range" min="1" max="8" step=".5"/><output id="line-output"></output></label><label class="sphere-style">Line color<input id="sphere-color" aria-label="Sphere line color" type="color"/></label><div class="sphere-buttons"><button id="reset-warp" class="text-button">Reset warp</button><button id="delete-key" class="text-button">Delete current key</button><button id="remove-sphere" class="text-button">Remove sphere</button></div><div class="sphere-legend">T top · B bottom · L left · R right · F front · Back rear</div></div>`;
     document.querySelector(".layer-note").replaceWith(panel);
     document.querySelector("#add-sphere").onclick = () => {
       if (!api.ready()) return;
-      api.project().sphere = { pose: defaultPose(), keys: {}, visible: true };
+      const items = api.project().spheres;
+      if (items.length >= 100) {
+        api.toast("A project supports up to 100 spheres.");
+        return;
+      }
+      const sphere = {
+        id: uid(),
+        name: `Sphere ${items.length + 1}`,
+        pose: defaultPose(),
+        keys: {},
+        visible: true,
+        lineWidth: 1,
+        color: "#d3fa84",
+      };
+      items.push(sphere);
+      this.active = sphere.id;
       this.sphereMode = true;
       this.update();
       api.changed();
     };
+    document.querySelector("#sphere-list").onchange = (e) =>
+      this.select(e.target.value);
+    panel.addEventListener("pointerdown", () => {
+      if (this.selected()) {
+        this.sphereMode = true;
+        api.changed();
+      }
+    });
     document.querySelector("#sphere-edit").onclick = () => {
-      this.sphereMode = !this.sphereMode;
+      this.sphereMode = true;
       this.update();
       api.changed();
     };
+    panel
+      .querySelectorAll("[data-mode]")
+      .forEach((b) => (b.onclick = () => this.setMode(b.dataset.mode)));
     document.querySelector("#sphere-visible").onclick = () => {
-      const s = api.project().sphere;
-      s.visible = !s.visible;
+      const sphere = this.selected();
+      sphere.visible = !sphere.visible;
       this.update();
       api.changed();
     };
     document.querySelector("#key-sphere").onclick = () => this.key();
     document.querySelector("#delete-key").onclick = () => {
-      const s = api.project().sphere;
-      delete s.keys[api.frame()];
-      delete s.draft;
+      const sphere = this.selected();
+      delete sphere.keys[api.frame()];
+      delete sphere.draft;
       this.update();
       api.changed();
     };
     document.querySelector("#remove-sphere").onclick = () => {
-      if (!confirm("Remove the sphere and all its keys?")) return;
-      delete api.project().sphere;
+      if (!confirm("Remove this sphere and its keys?")) return;
+      const p = api.project();
+      p.spheres = p.spheres.filter((item) => item.id !== this.active);
+      this.active = p.spheres[0]?.id;
       this.sphereMode = false;
       this.update();
       api.changed();
     };
+    document.querySelector("#sphere-line").oninput = (e) => {
+      this.selected().lineWidth = +e.target.value;
+      this.update();
+      api.changed();
+    };
+    document.querySelector("#sphere-color").oninput = (e) => {
+      this.selected().color = e.target.value;
+      api.changed();
+    };
+    document.querySelector("#reset-warp").onclick = () => {
+      const pose = spherePose(this.selected(), api.frame());
+      for (const k of ["tlx", "tly", "trx", "try", "blx", "bly", "brx", "bry"])
+        pose[k] = 0;
+      pose.skew = 0;
+      this.edit(pose);
+    };
     const fields = [
       ["x", "X", 0, 1, 0.005],
       ["y", "Y", 0, 1, 0.005],
-      ["width", "Width", 0.02, 1, 0.01],
-      ["height", "Height", 0.02, 1, 0.01],
+      ["width", "Scale X", 0.02, 5, 0.01],
+      ["height", "Scale Y", 0.02, 5, 0.01],
       ["rx", "Rotate X", -180, 180, 1],
       ["ry", "Rotate Y", -180, 180, 1],
       ["rz", "Rotate Z", -180, 180, 1],
@@ -167,17 +265,29 @@ export class ReviewTools {
     document.querySelectorAll("[data-pose]").forEach(
       (input) =>
         (input.oninput = () => {
-          const s = api.project().sphere,
+          const s = this.selected(),
             pose = spherePose(s, api.frame());
           pose[input.dataset.pose] = +input.value;
           this.edit(pose);
         }),
     );
+    panel.addEventListener("keydown", (e) => {
+      if (e.target.type !== "range") return;
+      const key = e.key.toLowerCase(),
+        mode = { w: "move", e: "rotate", r: "scale", t: "warp" }[key];
+      if (key === "s" || mode || key === "q" || key === "escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        if (key === "s") this.key();
+        else if (mode) this.setMode(mode);
+        else this.deselect();
+      }
+    });
     this.update();
   }
   edit(pose) {
     this.api.pause();
-    const s = this.api.project().sphere;
+    const s = this.selected();
     if (!s) return;
     if (!Object.keys(s.keys).length) s.pose = pose;
     else s.draft = { frame: this.api.frame(), pose };
@@ -185,7 +295,7 @@ export class ReviewTools {
     this.api.changed();
   }
   key() {
-    const s = this.api.project().sphere;
+    const s = this.selected();
     if (!s || !this.api.ready()) return;
     this.api.pause();
     s.keys[this.api.frame()] = spherePose(s, this.api.frame());
@@ -247,13 +357,33 @@ export class ReviewTools {
   }
   update() {
     const p = this.api.project(),
-      s = p.sphere;
+      s = this.selected();
     document.querySelector("#sphere-controls").hidden = !s;
-    document.querySelector("#add-sphere").hidden = !!s;
+    const list = document.querySelector("#sphere-list");
+    const signature = p.spheres.map((s) => s.id).join(",");
+    if (list.dataset.signature !== signature) {
+      list.innerHTML = p.spheres
+        .map((s, i) => `<option value="${s.id}">Sphere ${i + 1}</option>`)
+        .join("");
+      list.dataset.signature = signature;
+    }
+    list.value = this.active || "";
+    list.hidden = !p.spheres.length;
+    document
+      .querySelectorAll("[data-mode]")
+      .forEach((b) =>
+        b.classList.toggle(
+          "selected",
+          b.dataset.mode === this.mode && this.sphereMode,
+        ),
+      );
     if (s) {
+      document.querySelector("#sphere-line").value = s.lineWidth ?? 1;
+      document.querySelector("#line-output").textContent = s.lineWidth ?? 1;
+      document.querySelector("#sphere-color").value = s.color || "#d3fa84";
       const pose = spherePose(s, this.api.frame());
       document.querySelectorAll("[data-pose]").forEach((input) => {
-        if (document.activeElement !== input)
+        if (document.activeElement !== input || this.drag)
           input.value = pose[input.dataset.pose];
         document.querySelector(
           `[data-output="${input.dataset.pose}"]`,
@@ -276,6 +406,14 @@ export class ReviewTools {
         !s.keys[this.api.frame()];
     }
     const z = this.api.zoom();
+    let sliceStart = 0;
+    document.querySelector("#video-slices").innerHTML = (p.clipRanges || [])
+      .map((r, i) => {
+        const start = sliceStart;
+        sliceStart += r.end - r.start + 1;
+        return `<div class="video-slice-bound" style="left:${start * z}px;width:${(r.end - r.start + 1) * z}px"><span>Slice ${i + 1}</span></div>`;
+      })
+      .join("");
     document.querySelector("#frame-groups").innerHTML = p.groups
       .map(
         (g) =>
@@ -284,72 +422,257 @@ export class ReviewTools {
       .join("");
     const row = document.querySelector("#sphere-track");
     row.innerHTML =
-      '<span class="sphere-track-label">SPHERE · S TO KEY</span>' +
-      (s
-        ? Object.keys(s.keys)
-            .map(
-              (n) =>
-                `<button class="sphere-key ${+n === this.api.frame() ? "current" : ""}" style="left:${n * z}px" data-key="${n}" title="Sphere key ${n}" aria-label="Go to sphere key ${n}"></button>`,
+      p.spheres
+        .map(
+          (s, i) =>
+            `<div class="sphere-track sphere-row ${s.id === this.active && this.sphereMode ? "active" : ""}"><button class="sphere-row-select" data-sphere="${s.id}">Sphere ${i + 1}</button>${Object.keys(
+              s.keys,
             )
-            .join("")
-        : "");
+              .map(
+                (n) =>
+                  `<button class="sphere-key ${+n === this.api.frame() ? "current" : ""}" style="left:${n * z}px" data-key="${n}" data-sphere-key="${s.id}" title="Sphere ${i + 1} key ${n}" aria-label="Go to Sphere ${i + 1} key ${n}"></button>`,
+              )
+              .join("")}</div>`,
+        )
+        .join("") || '<div class="sphere-row-empty">SPHERES · S TO KEY</div>';
     row
-      .querySelectorAll("[data-key]")
-      .forEach((b) => (b.onclick = () => this.api.seek(+b.dataset.key)));
+      .querySelectorAll("[data-sphere]")
+      .forEach((b) => (b.onclick = () => this.select(b.dataset.sphere)));
+    row.querySelectorAll("[data-key]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          this.select(b.dataset.sphereKey);
+          this.api.seek(+b.dataset.key);
+        }),
+    );
+    const offset = Math.max(1, p.spheres.length) * 32;
+    document
+      .querySelector("#timeline-track")
+      .style.setProperty("--sphere-offset", `${offset}px`);
+    document.querySelector("#timeline-track").style.height =
+      `${offset + 133}px`;
+    document.querySelector(".timeline-section").style.height =
+      `${offset + 238}px`;
     this.status();
     document.querySelector("#ungroup").disabled = !groupAt(p, this.api.frame());
   }
-  pointerDown(e, canvas) {
-    const s = this.api.project().sphere;
-    if (!this.api.ready() || !this.sphereMode || !s?.visible) return false;
-    this.api.pause();
-    const rect = canvas.getBoundingClientRect(),
-      pose = spherePose(s, this.api.frame());
-    const x = (e.clientX - rect.left) / rect.width,
-      y = (e.clientY - rect.top) / rect.height;
-    const handles = [
-      [pose.x + pose.width / 2, pose.y, "width"],
-      [
-        pose.x + (pose.skew * pose.width) / 2,
-        pose.y + pose.height / 2,
-        "height",
-      ],
+  selected() {
+    return this.api.project().spheres.find((s) => s.id === this.active);
+  }
+  select(id) {
+    this.active = id;
+    this.sphereMode = true;
+    this.update();
+    this.api.changed();
+  }
+  deselect() {
+    if (!this.sphereMode) return;
+    this.sphereMode = false;
+    this.update();
+    this.api.changed();
+  }
+  destroy() {
+    document.removeEventListener("pointerdown", this.outside);
+  }
+  setMode(mode) {
+    this.mode = mode;
+    if (this.selected()) this.sphereMode = true;
+    this.update();
+    this.api.changed();
+  }
+  dimensions(s, p, w, h) {
+    const base = 0.3 * Math.min(w, h);
+    return [
+      p.width * (s.baseWidth ? s.baseWidth * w : base),
+      p.height * (s.baseHeight ? s.baseHeight * h : base),
     ];
-    const hit = handles.find(
-      (h) => Math.hypot((x - h[0]) * rect.width, (y - h[1]) * rect.height) < 18,
+  }
+  point(s, p, x, y, w, h) {
+    const [sw, sh] = this.dimensions(s, p, w, h);
+    const u = (x + 1) / 2,
+      v = (y + 1) / 2;
+    const dx =
+      (p.tlx || 0) * (1 - u) * (1 - v) +
+      (p.trx || 0) * u * (1 - v) +
+      (p.blx || 0) * (1 - u) * v +
+      (p.brx || 0) * u * v;
+    const dy =
+      (p.tly || 0) * (1 - u) * (1 - v) +
+      (p.try || 0) * u * (1 - v) +
+      (p.bly || 0) * (1 - u) * v +
+      (p.bry || 0) * u * v;
+    return [
+      p.x * w + ((x + p.skew * y + dx) * sw) / 2,
+      p.y * h + ((y + dy) * sh) / 2,
+    ];
+  }
+  handles(s, p, w, h) {
+    const c = [p.x * w, p.y * h],
+      r =
+        60 *
+        (w /
+          (document.querySelector("#drawing-canvas").getBoundingClientRect()
+            .width || w));
+    let handles = [];
+    if (this.mode === "move" || this.mode === "scale") {
+      handles = [
+        { x: c[0] + r, y: c[1], kind: "x" },
+        { x: c[0], y: c[1] - r, kind: "y" },
+        { x: c[0], y: c[1], kind: "free" },
+      ];
+    } else if (this.mode === "rotate") {
+      handles = [
+        { x: c[0], y: c[1] - r, kind: "rx" },
+        { x: c[0] + r, y: c[1], kind: "ry" },
+        { x: c[0], y: c[1] + r, kind: "rz" },
+        { x: c[0], y: c[1], kind: "free" },
+      ];
+    } else {
+      handles = [
+        ...["tl", "tr", "bl", "br"].map((corner, i) => {
+          const q = this.point(s, p, i % 2 ? 1 : -1, i < 2 ? -1 : 1, w, h);
+          return { x: q[0], y: q[1], kind: corner };
+        }),
+        { x: c[0], y: c[1], kind: "free" },
+        {
+          ...(() => {
+            const q = this.point(s, p, 0, -1, w, h);
+            return { x: q[0], y: q[1], kind: "skew" };
+          })(),
+        },
+      ];
+    }
+    return { c, r, handles };
+  }
+  contains(s, p, x, y, w, h) {
+    const points = Array.from({ length: 64 }, (_, i) =>
+      this.point(
+        s,
+        p,
+        Math.cos((i / 64) * Math.PI * 2),
+        Math.sin((i / 64) * Math.PI * 2),
+        w,
+        h,
+      ),
     );
+    let inside = false;
+    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+      const [xi, yi] = points[i],
+        [xj, yj] = points[j];
+      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi)
+        inside = !inside;
+    }
+    return inside;
+  }
+  pointerDown(e, canvas) {
+    if (!this.api.ready()) return false;
+    const rect = canvas.getBoundingClientRect(),
+      w = canvas.width,
+      h = canvas.height,
+      x = ((e.clientX - rect.left) * w) / rect.width,
+      y = ((e.clientY - rect.top) * h) / rect.height;
+    let s = this.selected(),
+      pose = s && spherePose(s, this.api.frame()),
+      hit;
+    if (this.sphereMode && s?.visible) {
+      hit = this.handles(s, pose, w, h).handles.find(
+        (a) => Math.hypot(x - a.x, y - a.y) < (14 * w) / rect.width,
+      );
+    }
+    if (!hit && this.sphereMode && s?.visible && this.mode === "rotate") {
+      const { c, r } = this.handles(s, pose, w, h);
+      const tx = (x - c[0]) / r,
+        ty = (y - c[1]) / r;
+      const rings = [
+        ["rx", 0.45, 1],
+        ["ry", 1, 0.45],
+        ["rz", 1, 1],
+      ]
+        .map(([kind, a, b]) => ({
+          kind,
+          distance: Math.abs(Math.hypot(tx / a, ty / b) - 1) * r,
+        }))
+        .sort((a, b) => a.distance - b.distance);
+      if (rings[0].distance < (12 * w) / rect.width) hit = rings[0];
+    }
+    if (!hit) {
+      s = [...this.api.project().spheres].reverse().find((s) => {
+        if (!s.visible) return false;
+        const p = spherePose(s, this.api.frame());
+        return this.contains(s, p, x, y, w, h);
+      });
+      if (!s) {
+        this.deselect();
+        return false;
+      }
+      this.select(s.id);
+      pose = spherePose(s, this.api.frame());
+      hit = { kind: "free" };
+    }
+    this.api.pause();
     this.drag = {
       id: e.pointerId,
       x,
       y,
       pose,
-      mode: hit?.[2] || (e.shiftKey ? "rotate" : "move"),
+      kind: hit.kind,
+      w,
+      h,
+      mode: this.mode,
     };
     canvas.setPointerCapture(e.pointerId);
     return true;
   }
   pointerMove(e, canvas) {
-    if (!this.drag || this.drag.id !== e.pointerId) return false;
+    const d = this.drag;
+    if (!d || d.id !== e.pointerId) return false;
     const r = canvas.getBoundingClientRect(),
-      x = (e.clientX - r.left) / r.width,
-      y = (e.clientY - r.top) / r.height,
-      d = this.drag,
-      pose = { ...d.pose },
+      x = ((e.clientX - r.left) * d.w) / r.width,
+      y = ((e.clientY - r.top) * d.h) / r.height,
       dx = x - d.x,
-      dy = y - d.y;
-    if (d.mode === "move") {
-      pose.x = clamp(pose.x + dx, 0, 1);
-      pose.y = clamp(pose.y + dy, 0, 1);
+      dy = y - d.y,
+      p = { ...d.pose },
+      s = this.selected(),
+      [sw, sh] = this.dimensions(s, p, d.w, d.h);
+    if (d.mode === "move" || (d.mode === "warp" && d.kind === "free")) {
+      if (d.kind !== "y") p.x = clamp(p.x + dx / d.w, 0, 1);
+      if (d.kind !== "x") p.y = clamp(p.y + dy / d.h, 0, 1);
     } else if (d.mode === "rotate") {
-      pose.ry = clamp(pose.ry + dx * 360, -180, 180);
-      pose.rx = clamp(pose.rx - dy * 360, -180, 180);
-    } else
-      pose[d.mode] = clamp(
-        pose[d.mode] + (d.mode === "width" ? dx : dy) * 2,
-        0.02,
-        1,
-      );
-    this.edit(pose);
+      if (d.kind === "free") {
+        p.ry = clamp(p.ry + (dx / r.width) * 360, -180, 180);
+        p.rx = clamp(p.rx - (dy / r.height) * 360, -180, 180);
+      } else if (d.kind === "rz") {
+        const cx = p.x * d.w,
+          cy = p.y * d.h;
+        p.rz = clamp(
+          p.rz +
+            ((Math.atan2(y - cy, x - cx) - Math.atan2(d.y - cy, d.x - cx)) *
+              180) /
+              Math.PI,
+          -180,
+          180,
+        );
+      } else
+        p[d.kind] = clamp(
+          p[d.kind] + (d.kind === "ry" ? dx : -dy) * 0.4,
+          -180,
+          180,
+        );
+    } else if (d.mode === "scale") {
+      const delta = dx - dy;
+      if (d.kind === "free") {
+        const f = Math.exp(delta / 150);
+        p.width = clamp(p.width * f, 0.02, 5);
+        p.height = clamp(p.height * f, 0.02, 5);
+      } else if (d.kind === "x")
+        p.width = clamp(p.width + (dx / sw) * 2 * p.width, 0.02, 5);
+      else p.height = clamp(p.height - (dy / sh) * 2 * p.height, 0.02, 5);
+    } else if (d.kind === "skew") p.skew = clamp(p.skew - (dx / sw) * 2, -1, 1);
+    else {
+      p[d.kind + "x"] = clamp((p[d.kind + "x"] || 0) + (dx / sw) * 2, -2, 2);
+      p[d.kind + "y"] = clamp((p[d.kind + "y"] || 0) + (dy / sh) * 2, -2, 2);
+    }
+    this.edit(p);
     return true;
   }
   pointerUp(e) {
@@ -360,7 +683,9 @@ export class ReviewTools {
     return false;
   }
   draw(ctx, w, h) {
-    const s = this.api.project().sphere;
+    for (const s of this.api.project().spheres) this.drawSphere(ctx, w, h, s);
+  }
+  drawSphere(ctx, w, h, s) {
     if (!s?.visible) return;
     const p = spherePose(s, this.api.frame()),
       rad = Math.PI / 180;
@@ -381,19 +706,16 @@ export class ReviewTools {
         x * Math.cos(a) - y * Math.sin(a),
         x * Math.sin(a) + y * Math.cos(a),
       ];
-      return [
-        (p.x + ((x + p.skew * y) * p.width) / 2) * w,
-        (p.y + (y * p.height) / 2) * h,
-        z,
-      ];
+      return [...this.point(s, p, x, y, w, h), z];
     };
     ctx.save();
-    ctx.lineWidth = Math.max(1, w / 1000);
+    ctx.lineWidth = (s.lineWidth || 1) * Math.max(1, w / 1000);
     const path = (fn) => {
       let prev = project(fn(0));
       for (let i = 1; i <= 96; i++) {
         const q = project(fn((i / 96) * Math.PI * 2));
-        ctx.strokeStyle = q[2] >= 0 ? "#d3fa84" : "#91a3b080";
+        ctx.strokeStyle =
+          q[2] >= 0 ? s.color || "#d3fa84" : (s.color || "#d3fa84") + "70";
         ctx.setLineDash(q[2] >= 0 ? [] : [3, 4]);
         ctx.beginPath();
         ctx.moveTo(prev[0], prev[1]);
@@ -415,21 +737,28 @@ export class ReviewTools {
         Math.cos(t) * Math.sin(lng),
       ]);
     ctx.setLineDash([]);
-    ctx.strokeStyle = "#d3fa84";
+    ctx.strokeStyle = s.color || "#d3fa84";
     ctx.beginPath();
-    ctx.save();
-    ctx.translate(p.x * w, p.y * h);
-    ctx.transform(1, 0, (p.skew * p.width * w) / (p.height * h), 1, 0, 0);
-    ctx.ellipse(0, 0, (p.width * w) / 2, (p.height * h) / 2, 0, 0, Math.PI * 2);
+    for (let i = 0; i <= 96; i++) {
+      const q = this.point(
+        s,
+        p,
+        Math.cos((i / 96) * Math.PI * 2),
+        Math.sin((i / 96) * Math.PI * 2),
+        w,
+        h,
+      );
+      if (i === 0) ctx.moveTo(...q);
+      else ctx.lineTo(...q);
+    }
     ctx.stroke();
-    ctx.restore();
     for (const [label, v, color] of [
       ["T", [0, -1, 0], "#78d9f0"],
       ["B", [0, 1, 0], "#c29bff"],
       ["L", [-1, 0, 0], "#ff8a87"],
       ["R", [1, 0, 0], "#8de0ad"],
       ["F", [0, 0, 1], "#ffdb75"],
-      ["K", [0, 0, -1], "#b7c4d4"],
+      ["Back", [0, 0, -1], "#b7c4d4"],
     ]) {
       const q = project(v);
       if (q[2] < -0.2) q[1] -= 14;
@@ -446,13 +775,82 @@ export class ReviewTools {
       ctx.fillText(label, q[0], q[1]);
     }
     ctx.globalAlpha = 1;
-    if (this.sphereMode) {
-      ctx.fillStyle = "#fff";
-      for (const [x, y] of [
-        [p.x + p.width / 2, p.y],
-        [p.x + (p.skew * p.width) / 2, p.y + p.height / 2],
-      ]) {
-        ctx.fillRect(x * w - 5, y * h - 5, 10, 10);
+    if (this.sphereMode && s.id === this.active) {
+      const { c, r, handles } = this.handles(s, p, w, h);
+      ctx.lineWidth =
+        (2 * w) /
+        (document.querySelector("#drawing-canvas").getBoundingClientRect()
+          .width || w);
+      ctx.strokeStyle = "#dce5ff";
+      ctx.fillStyle = "#dce5ff";
+      ctx.setLineDash([]);
+      if (this.mode === "rotate") {
+        for (const [i, col] of ["#ff7373", "#8fdf8c", "#87b6ff"].entries()) {
+          ctx.strokeStyle = col;
+          ctx.beginPath();
+          ctx.ellipse(
+            c[0],
+            c[1],
+            i === 0 ? r * 0.45 : r,
+            i === 1 ? r * 0.45 : r,
+            0,
+            0,
+            Math.PI * 2,
+          );
+          ctx.stroke();
+        }
+      } else if (this.mode === "warp") {
+        ctx.beginPath();
+        handles.slice(0, 4).forEach((v, i) => {
+          const q = handles[[0, 1, 3, 2][i]];
+          if (i === 0) ctx.moveTo(q.x, q.y);
+          else ctx.lineTo(q.x, q.y);
+        });
+        ctx.closePath();
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle = "#ff7373";
+        ctx.beginPath();
+        ctx.moveTo(...c);
+        ctx.lineTo(c[0] + r, c[1]);
+        ctx.stroke();
+        ctx.strokeStyle = "#8fdf8c";
+        ctx.beginPath();
+        ctx.moveTo(...c);
+        ctx.lineTo(c[0], c[1] - r);
+        ctx.stroke();
+      }
+      for (const v of handles) {
+        ctx.fillStyle = ["x", "rx"].includes(v.kind)
+          ? "#ff7373"
+          : ["y", "ry"].includes(v.kind)
+            ? "#8fdf8c"
+            : v.kind === "rz"
+              ? "#87b6ff"
+              : "#fff";
+        const size =
+          (6 * w) /
+          (document.querySelector("#drawing-canvas").getBoundingClientRect()
+            .width || w);
+        if (v.kind === "free") {
+          ctx.strokeStyle = "#fff";
+          ctx.beginPath();
+          ctx.arc(v.x, v.y, size * 2, 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (this.mode === "move" && ["x", "y"].includes(v.kind)) {
+          ctx.beginPath();
+          if (v.kind === "x") {
+            ctx.moveTo(v.x + size, v.y);
+            ctx.lineTo(v.x - size, v.y - size);
+            ctx.lineTo(v.x - size, v.y + size);
+          } else {
+            ctx.moveTo(v.x, v.y - size);
+            ctx.lineTo(v.x - size, v.y + size);
+            ctx.lineTo(v.x + size, v.y + size);
+          }
+          ctx.closePath();
+          ctx.fill();
+        } else ctx.fillRect(v.x - size, v.y - size, size * 2, size * 2);
       }
     }
     ctx.restore();
