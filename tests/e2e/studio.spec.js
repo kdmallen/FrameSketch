@@ -560,3 +560,25 @@ test("touch playhead drag keeps scrubbing instead of scrolling or cancelling", a
   await expect(page.locator('#save-status')).toHaveText('Saved on this device');
   await context.close();
 });
+
+test("touch pause stops playback once and does not resume from a compatibility click", async ({ browser }) => {
+  const context = await browser.newContext({ hasTouch: true, viewport: { width: 1180, height: 820 } });
+  const page = await context.newPage();
+  await sample(page);
+  await page.locator('#play').tap();
+  await expect(page.locator('#video')).toHaveJSProperty('paused', false);
+  await page.waitForTimeout(350);
+  // Test a completed touch without relying on Safari's compatibility click.
+  await page.locator('#play').dispatchEvent('pointerdown', { pointerType: 'touch', pointerId: 99, clientX: 0, clientY: 0 });
+  await page.locator('#play').dispatchEvent('pointerup', { pointerType: 'touch', pointerId: 99, clientX: 0, clientY: 0 });
+  await page.locator('#play').dispatchEvent('click');
+  await expect(page.locator('#video')).toHaveJSProperty('paused', true);
+  const time = await page.locator('#video').evaluate(video => video.currentTime);
+  await page.waitForTimeout(500);
+  expect(await page.locator('#video').evaluate(video => video.currentTime)).toBe(time);
+  await page.locator('#play').tap();
+  await expect(page.locator('#video')).toHaveJSProperty('paused', false);
+  await page.locator('#play').tap();
+  await expect(page.locator('#video')).toHaveJSProperty('paused', true);
+  await context.close();
+});

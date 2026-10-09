@@ -81,6 +81,7 @@ let projects = [],
   frame = 0,
   frameCount = 1,
   playing = false,
+  playbackGeneration = 0,
   zoom = 1,
   timelineZoom = 6,
   blobURL = null,
@@ -448,7 +449,28 @@ function renderEditor() {
   $("#undo").onclick = undoStroke;
   $("#redo").onclick = redoStroke;
   $("#export-frame").onclick = exportFrame;
-  $("#play").onclick = togglePlay;
+  const playButton = $("#play");
+  let playTouch = null;
+  let lastPlayTouch = -Infinity;
+  playButton.onpointerdown = (e) => {
+    if (e.pointerType !== "touch") return;
+    playTouch = { id: e.pointerId, x: e.clientX, y: e.clientY };
+    if (e.isTrusted) playButton.setPointerCapture(e.pointerId);
+  };
+  playButton.onpointerup = (e) => {
+    if (!playTouch || playTouch.id !== e.pointerId) return;
+    const tap = Math.hypot(e.clientX - playTouch.x, e.clientY - playTouch.y) < 16;
+    playTouch = null;
+    if (!tap) return;
+    e.preventDefault();
+    lastPlayTouch = performance.now();
+    togglePlay();
+  };
+  playButton.onpointercancel = () => { playTouch = null; };
+  playButton.onclick = () => {
+    if (performance.now() - lastPlayTouch < 800) return;
+    togglePlay();
+  };
   $("#prev").onclick = () => seek(frame - 1);
   $("#next").onclick = () => seek(frame + 1);
   $("#fps").onchange = (e) => {
@@ -849,6 +871,7 @@ function updateFrame() {
   updateLayerFrameCounts();
 }
 function pause() {
+  playbackGeneration++;
   playing = false;
   video?.pause();
   cancelAnimationFrame(raf);
@@ -866,6 +889,7 @@ async function togglePlay() {
   }
   const [start, end] = playbackRange(project.a, project.b, frameCount);
   if (frame < start || frame >= end) seek(start);
+  const generation = ++playbackGeneration;
   playing = true;
   $("#play").innerHTML = icon("pause");
   playbackStart = performance.now();
@@ -874,6 +898,7 @@ async function togglePlay() {
     try {
       await video.play();
     } catch (e) {
+      if (generation !== playbackGeneration) return;
       pause();
       toast(
         "Playback could not start. Tap play again or try another video.",
@@ -881,8 +906,9 @@ async function togglePlay() {
       );
       return;
     }
+  if (!playing || generation !== playbackGeneration) return;
   const tick = (now) => {
-    if (!playing) return;
+    if (!playing || generation !== playbackGeneration) return;
     const time = gif
       ? playbackTime + (now - playbackStart) / 1000
       : project.clipRanges
