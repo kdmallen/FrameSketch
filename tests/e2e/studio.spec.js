@@ -87,14 +87,14 @@ test("upload workflow and frame export", async ({ page }) => {
   await page.locator("#export-frame").click();
   expect((await d).suggestedFilename()).toContain("frame-0.png");
 });
-test("new projects default to uploads and reject GIF files", async ({
+test("new projects offer video uploads only and reject GIF files", async ({
   page,
 }) => {
   await page.goto("/");
   await page.locator("#new-project").click();
   await page.locator("#project-name").fill("Upload review");
-  await expect(page.locator("#tab-link")).toBeVisible();
-  await expect(page.locator("#link-panel")).toBeHidden();
+  await expect(page.locator("#tab-link")).toHaveCount(0);
+  await expect(page.locator("#media-link")).toHaveCount(0);
   await page.locator("#create-submit").click();
   await expect(page.locator("#create-error")).toHaveText(
     "Choose a video first.",
@@ -444,20 +444,4 @@ test("gizmo free move, uniform scaling and corner warping change the selected sp
   );
   expect(data.project.spheres[0].keys[0].tlx).toBeLessThan(0);
   expect(data.project.spheres[0].keys[0].tly).toBeLessThan(0);
-});
-test("paste link stores actual downloaded video and reopens it", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await page.locator("#new-project").click();
-  await page.locator("#project-name").fill("Downloaded clip");
-  await page.locator("#tab-link").click();
-  await page.locator("#media-link").fill("http://127.0.0.1:5173/sample.mp4");
-  await page.locator("#create-submit").click();
-  await expect(page.locator("#viewer-state")).toHaveText("READY TO REVIEW");
-  await page.locator("#next").click();
-  await expect(page.locator("#frame-position")).toHaveText("Frame 1 / 191");
-  await page.locator("#back-home").click();
-  await page.locator("[data-open]").first().click();
-  await expect(page.locator("#viewer-state")).toHaveText("READY TO REVIEW");
 });
