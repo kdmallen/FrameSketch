@@ -2611,3 +2611,11 @@ label > input:not([type="range"]):not([type="color"]) {
 
 .sphere-color-swatches { display: flex; gap: 8px; margin: 8px 0; }
 .sphere-color-swatches button { width: 36px; min-height: 36px; border: 1px solid #73808f; border-radius: 8px; }
+
+/* The playhead is a scrub handle; the filmstrip remains a scroll surface. */
+.playhead { pointer-events: auto; touch-action: none; cursor: col-resize; }
+.playhead::before { content: ""; position: absolute; top: 0; bottom: 0; left: -16px; width: 32px; }
+.playhead-tab { touch-action: none; }
+@media (pointer: coarse) {
+  .playhead-tab { width: 28px; height: 24px; left: -13.5px; }
+}

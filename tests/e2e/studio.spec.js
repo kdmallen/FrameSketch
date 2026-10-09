@@ -531,3 +531,32 @@ test("continuous touch scrub leaves native slider untouched and saves after rele
   await expect(page.locator('#frame-position')).toHaveText(`Frame ${finalFrame} / 191`);
   await context.close();
 });
+
+test("touch playhead drag keeps scrubbing instead of scrolling or cancelling", async ({ browser }) => {
+  const context = await browser.newContext({ hasTouch: true, viewport: { width: 1180, height: 820 } });
+  const page = await context.newPage();
+  await sample(page);
+  await page.locator('#timeline-zoom').fill('8');
+  await page.locator('#timeline-zoom').dispatchEvent('input');
+  await page.locator('#touch-scrub').fill('30');
+  await page.locator('#touch-scrub').dispatchEvent('input');
+  await page.evaluate(() => {
+    window.timelineCancels = 0;
+    document.querySelector('#timeline-track').addEventListener('pointercancel', () => window.timelineCancels++);
+  });
+  const r = await page.locator('#playhead').boundingBox();
+  const session = await context.newCDPSession(page);
+  const point = dx => [{ id: 0, x: Math.round(r.x + dx), y: Math.round(r.y + r.height / 2) }];
+  const scroll = await page.locator('#timeline-scroll').evaluate(el => el.scrollLeft);
+  await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: point(0) });
+  for (const dx of [40, 80, 120]) {
+    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: point(dx) });
+    await page.waitForTimeout(400);
+    await expect(page.locator('#frame-position')).toHaveText(`Frame ${30 + dx / 8} / 191`);
+  }
+  await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  expect(await page.evaluate(() => window.timelineCancels)).toBe(0);
+  expect(await page.locator('#timeline-scroll').evaluate(el => el.scrollLeft)).toBe(scroll);
+  await expect(page.locator('#save-status')).toHaveText('Saved on this device');
+  await context.close();
+});

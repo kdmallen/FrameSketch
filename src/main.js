@@ -1187,27 +1187,36 @@ function setupTimeline() {
     if (!mediaLoaded || e.button !== 0 || e.target.closest("button")) return;
     if (e.pointerType !== "touch") e.preventDefault();
     window.getSelection()?.removeAllRanges();
-    gesture = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false };
-    if (e.pointerType !== "touch" || e.target.closest(".ruler"))
+    const scrubbing = e.pointerType !== "touch" || !!e.target.closest(".ruler, .playhead");
+    gesture = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false, scrubbing };
+    if (scrubbing) {
+      scrubActive = true;
+      clearTimeout(saveTimer);
       track.setPointerCapture(e.pointerId);
-    seek(frameFrom(e));
+      seek(frameFrom(e));
+    }
   };
   track.onpointermove = (e) => {
     if (!gesture || gesture.id !== e.pointerId) return;
     if (Math.hypot(e.clientX - gesture.x, e.clientY - gesture.y) > 4)
       gesture.moved = true;
-    if (gesture.moved) seek(frameFrom(e));
+    if (gesture.moved && gesture.scrubbing) seek(frameFrom(e));
   };
   track.onpointerup = (e) => {
     if (!gesture || gesture.id !== e.pointerId) return;
-    const moved = gesture.moved;
+    const { moved, scrubbing } = gesture;
+    if (moved && scrubbing) seek(frameFrom(e));
     gesture = null;
     if (!moved)
       reviewTools ? reviewTools.timeline(frameFrom(e)) : seek(frameFrom(e));
+    if (scrubbing) { scrubActive = false; updateFrame(); persist(); }
   };
-  track.onpointercancel = () => {
+  const cancelTimelineGesture = () => {
+    if (gesture?.scrubbing) { scrubActive = false; persist(); }
     gesture = null;
   };
+  track.onpointercancel = cancelTimelineGesture;
+  track.onlostpointercapture = cancelTimelineGesture;
 }
 function scrollToFrame(center = true) {
   const sc = $("#timeline-scroll");
