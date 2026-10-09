@@ -35,6 +35,7 @@ select {
 }
 button {
   cursor: pointer;
+  touch-action: manipulation;
   color: inherit;
   background: none;
   border: 0;
