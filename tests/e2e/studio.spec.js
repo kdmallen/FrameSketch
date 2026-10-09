@@ -479,6 +479,13 @@ test("touch controls scrub, change sphere mode/color, and two-finger undo", asyn
   await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   await expect(page.locator("#annotated-count")).toHaveText("0");
   await page.locator("#add-sphere").tap();
+  for (const mode of ["rotate", "move", "scale", "warp"]) {
+    const button = page.locator(`[data-mode="${mode}"]`);
+    // Safari may omit the compatibility click; pointer-up must be sufficient.
+    await button.dispatchEvent("pointerdown", { pointerType: "touch", pointerId: 77, clientX: 0, clientY: 0 });
+    await button.dispatchEvent("pointerup", { pointerType: "touch", pointerId: 77, clientX: 0, clientY: 0 });
+    await expect(button).toHaveClass(/selected/);
+  }
   await page.locator('[data-mode="rotate"]').tap();
   await expect(page.locator('[data-mode="rotate"]')).toHaveClass(/selected/);
   await page.locator('[data-sphere-color="#ff7c78"]').tap();
@@ -490,5 +497,37 @@ test("touch controls scrub, change sphere mode/color, and two-finger undo", asyn
   await expect.poll(async () => Number(await page.locator("#touch-scrub").inputValue())).toBeGreaterThan(0);
   await page.locator("#back-home").tap();
   await expect(page.locator("#import-file")).not.toHaveAttribute("accept");
+  await context.close();
+});
+
+test("continuous touch scrub leaves native slider untouched and saves after release", async ({ browser }) => {
+  const context = await browser.newContext({ hasTouch: true, viewport: { width: 1180, height: 820 } });
+  const page = await context.newPage();
+  await sample(page);
+  await page.waitForTimeout(500);
+  await page.evaluate(() => {
+    window.scrubWrites = 0;
+    const input = document.querySelector('#touch-scrub');
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    Object.defineProperty(input, 'value', { get() { return descriptor.get.call(this); }, set(value) { window.scrubWrites++; descriptor.set.call(this, value); } });
+  });
+  const session = await context.newCDPSession(page);
+  const r = await page.locator('#touch-scrub').boundingBox();
+  const point = fraction => [{ id: 0, x: Math.round(r.x + r.width * fraction), y: Math.round(r.y + r.height / 2) }];
+  await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: point(0.08) });
+  for (const fraction of [0.25, 0.5, 0.8]) {
+    await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: point(fraction) });
+    await page.waitForTimeout(400);
+  }
+  expect(await page.evaluate(() => window.scrubWrites)).toBe(0);
+  const finalFrame = Number(await page.locator('#touch-scrub').inputValue());
+  expect(finalFrame).toBeGreaterThan(100);
+  await expect(page.locator('#frame-position')).toHaveText(`Frame ${finalFrame} / 191`);
+  await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect(page.locator('#save-status')).toHaveText('Saved on this device');
+  await page.locator('#back-home').tap();
+  await page.locator('[data-open]').first().tap();
+  await expect(page.locator('#viewer-state')).toHaveText('READY TO REVIEW');
+  await expect(page.locator('#frame-position')).toHaveText(`Frame ${finalFrame} / 191`);
   await context.close();
 });

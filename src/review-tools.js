@@ -193,9 +193,12 @@ export class ReviewTools {
     };
     document.querySelector("#sphere-list").onchange = (e) =>
       this.select(e.target.value);
-    panel.addEventListener("pointerdown", () => {
+    panel.addEventListener("focusin", () => {
       if (this.selected()) {
         this.sphereMode = true;
+        panel.querySelectorAll("[data-mode]").forEach((button) =>
+          button.classList.toggle("selected", button.dataset.mode === this.mode),
+        );
         api.preview();
       }
     });
@@ -204,9 +207,29 @@ export class ReviewTools {
       this.update();
       api.changed();
     };
-    panel
-      .querySelectorAll("[data-mode]")
-      .forEach((b) => (b.onclick = () => this.setMode(b.dataset.mode)));
+    panel.querySelectorAll("[data-mode]").forEach((button) => {
+      let touch = null;
+      let lastTouch = -Infinity;
+      button.addEventListener("pointerdown", (e) => {
+        if (e.pointerType !== "touch") return;
+        touch = { id: e.pointerId, x: e.clientX, y: e.clientY };
+        if (e.isTrusted) button.setPointerCapture(e.pointerId);
+      });
+      button.addEventListener("pointerup", (e) => {
+        if (!touch || touch.id !== e.pointerId) return;
+        const tap = Math.hypot(e.clientX - touch.x, e.clientY - touch.y) < 16;
+        touch = null;
+        if (!tap) return;
+        e.preventDefault();
+        lastTouch = performance.now();
+        this.setMode(button.dataset.mode);
+      });
+      button.addEventListener("pointercancel", () => { touch = null; });
+      button.onclick = () => {
+        if (performance.now() - lastTouch < 800) return;
+        this.setMode(button.dataset.mode);
+      };
+    });
     document.querySelector("#sphere-visible").onclick = () => {
       const sphere = this.selected();
       sphere.visible = !sphere.visible;

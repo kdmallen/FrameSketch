@@ -102,6 +102,7 @@ let projects = [],
   playbackTime = 0,
   currentStroke = null,
   pointerId = null,
+  scrubActive = false,
   thumbs = [],
   mediaLoaded = false,
   routeToken = 0,
@@ -136,6 +137,7 @@ function persist(immediate = false) {
   project.updated = Date.now();
   project.fps = fps;
   clearTimeout(saveTimer);
+  if (scrubActive && !immediate) return;
   $("#save-status") && ($("#save-status").textContent = "Saving…");
   const run = () => {
     const p = structuredClone(project);
@@ -160,6 +162,7 @@ function persist(immediate = false) {
   saveTimer = setTimeout(run, 350);
 }
 function cleanup() {
+  scrubActive = false;
   reviewTools?.destroy();
   reviewTools = null;
   routeToken++;
@@ -822,7 +825,11 @@ function seek(n, stop = true) {
 }
 function updateFrame() {
   const scrub = $("#touch-scrub");
-  if (scrub) { scrub.max = Math.max(0, frameCount - 1); scrub.value = frame; }
+  if (scrub && !scrubActive) {
+    const max = String(Math.max(0, frameCount - 1));
+    if (scrub.max !== max) scrub.max = max;
+    if (scrub.value !== String(frame)) scrub.value = frame;
+  }
   reviewTools?.update();
   if (!$("#timecode")) return;
   $("#timecode").textContent = timecode(frame, fps);
@@ -1148,7 +1155,23 @@ function updateMarkers() {
   );
 }
 function setupTimeline() {
-  $("#touch-scrub").oninput = (e) => seek(+e.target.value);
+  const scrub = $("#touch-scrub");
+  scrub.onpointerdown = () => {
+    scrubActive = true;
+    clearTimeout(saveTimer);
+    pause();
+  };
+  scrub.oninput = (e) => seek(+e.target.value);
+  const finishScrub = () => {
+    if (!scrubActive) return;
+    // End the browser's native slider gesture before synchronizing its value.
+    scrubActive = false;
+    persist();
+  };
+  scrub.onpointerup = finishScrub;
+  scrub.onpointercancel = finishScrub;
+  scrub.onlostpointercapture = finishScrub;
+  scrub.onchange = () => { finishScrub(); persist(); };
   let gesture = null;
   $("#timeline-scroll").onscroll = () => renderFilmstrip();
   const track = $("#timeline-track");
