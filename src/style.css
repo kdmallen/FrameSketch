@@ -2599,3 +2599,15 @@ label > input:not([type="range"]):not([type="color"]) {
   padding: 2px 4px;
   white-space: nowrap;
 }
+
+.touch-scrubber { display: flex; align-items: center; gap: 12px; margin: 0 20px 6px; font-size: 12px; min-height: 44px; }
+.touch-scrubber input { flex: 1; min-width: 0; height: 44px; touch-action: none; }
+.touch-scrubber input::-webkit-slider-thumb { width: 28px; height: 28px; }
+@media (pointer: coarse) {
+  .sphere-panel button, .sphere-panel select { min-height: 44px; touch-action: manipulation; }
+  .sphere-style input[type="color"] { width: 48px; height: 44px; }
+  .sphere-style input[type="range"] { height: 44px; }
+}
+
+.sphere-color-swatches { display: flex; gap: 8px; margin: 8px 0; }
+.sphere-color-swatches button { width: 36px; min-height: 36px; border: 1px solid #73808f; border-radius: 8px; }

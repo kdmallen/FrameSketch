@@ -465,3 +465,30 @@ test("deleting a sphere key preserves other spheres and persists", async ({ page
   await expect(page.locator(".sphere-key")).toHaveCount(1);
   await expect(page.locator("#sphere-list option")).toHaveCount(2);
 });
+
+test("touch controls scrub, change sphere mode/color, and two-finger undo", async ({ browser }) => {
+  const context = await browser.newContext({ hasTouch: true, viewport: { width: 1180, height: 820 } });
+  const page = await context.newPage();
+  await sample(page);
+  await draw(page);
+  await expect(page.locator("#annotated-count")).toHaveText("1");
+  const bounds = await page.locator("#drawing-canvas").boundingBox();
+  const session = await context.newCDPSession(page);
+  const touches = [0, 1].map((id) => ({ id, x: Math.round(bounds.x + bounds.width * (0.35 + id * 0.2)), y: Math.round(bounds.y + bounds.height * 0.5) }));
+  await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: touches });
+  await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await expect(page.locator("#annotated-count")).toHaveText("0");
+  await page.locator("#add-sphere").tap();
+  await page.locator('[data-mode="rotate"]').tap();
+  await expect(page.locator('[data-mode="rotate"]')).toHaveClass(/selected/);
+  await page.locator('[data-sphere-color="#ff7c78"]').tap();
+  await expect(page.locator("#sphere-color")).toHaveValue("#ff7c78");
+  await page.locator("#key-sphere").tap();
+  await expect(page.locator(".sphere-key")).toHaveCount(1);
+  const slider = await page.locator("#touch-scrub").boundingBox();
+  await page.touchscreen.tap(slider.x + slider.width * 0.6, slider.y + slider.height / 2);
+  await expect.poll(async () => Number(await page.locator("#touch-scrub").inputValue())).toBeGreaterThan(0);
+  await page.locator("#back-home").tap();
+  await expect(page.locator("#import-file")).not.toHaveAttribute("accept");
+  await context.close();
+});

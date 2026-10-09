@@ -28,11 +28,11 @@ If something fails, note what you clicked and what happened. A screenshot of the
 ## Review a clip
 
 1. Create a project and upload an MP4, WebM, MOV, or M4V video. Set the source frame rate to match your clip; the default is 24 fps.
-2. Step with the previous/next frame buttons, keyboard arrows, or scrub the timeline ruler. On touch devices, drag the filmstrip to scroll and drag the ruler to scrub. Increase timeline zoom to see individual numbered frames and their thumbnails.
-3. Draw with a mouse, touch, or Apple Pencil. Pressure changes line width on devices that report it. Sketches are specific to the selected frame. Use brush, eraser, color, brush size, undo, and redo.
+2. Step with the previous/next frame buttons, keyboard arrows, or scrub the timeline ruler. On touch devices, use the large Scrub video slider to scrub; drag the filmstrip to scroll. Increase timeline zoom to see individual numbered frames and their thumbnails.
+3. Draw with a mouse, touch, or Apple Pencil. Two-finger tap on the canvas undoes a drawing stroke. Pressure changes line width on devices that report it. Sketches are specific to the selected frame. Use brush, eraser, color, brush size, undo, and redo.
 4. Add layers, click their name to rename, hide/show, lock/unlock, and change opacity. The eraser affects only the active layer.
 5. Set A at the starting frame and B at the ending frame. Play to review that inclusive range, with looping on or off. Reversed markers are supported. Reset clears the range. Highlight frames with the flag button and jump between annotated frames from the layers panel.
-6. Export a `.framesketch` backup to retain or transfer a project, including uploaded media. Import it from the project dashboard. Export the current frame as a PNG with visible sketches.
+6. Export a `.framesketch` backup to retain or transfer a project, including uploaded media. Import it from the project dashboard using Import project, not the video upload dialog. The project picker accepts any file type so iPad Files can select `.framesketch` backups; the app validates their contents. Export the current frame as a PNG with visible sketches.
 
 Keyboard: Space play/pause, arrows step, A/B range, M highlight, D brush, F eraser, W move sphere, E rotate sphere, R scale sphere, T free transform/skew, Q or Escape hide gizmo, S key sphere, Ctrl/Command Z undo, Ctrl/Command Shift Z redo.
 

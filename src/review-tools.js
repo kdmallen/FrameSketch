@@ -167,7 +167,7 @@ export class ReviewTools {
     track.append(slices);
     const panel = document.createElement("section");
     panel.className = "sphere-panel";
-    panel.innerHTML = `<div class="sphere-title"><strong>Guide spheres</strong><button id="add-sphere" class="secondary">Add sphere</button></div><select id="sphere-list" aria-label="Select sphere"></select><div id="sphere-controls" hidden><div class="sphere-buttons"><button id="sphere-edit" class="secondary">Select / Edit</button><button id="sphere-visible" class="secondary">Hide</button><button id="key-sphere" class="primary">Key · S</button></div><div class="gizmo-modes">${["move", "rotate", "scale", "warp"].map((mode, i) => `<button data-mode="${mode}" title="${["W", "E", "R", "T"][i]}">${["Move W", "Rotate E", "Scale R", "Free T"][i]}</button>`).join("")}</div><p>Use axis handles or the inner control for free movement/rotation. Click outside to hide controls.</p><div id="sphere-fields"></div><label class="sphere-style">Line thickness<input id="sphere-line" aria-label="Sphere line thickness" type="range" min="1" max="8" step=".5"/><output id="line-output"></output></label><label class="sphere-style">Line color<input id="sphere-color" aria-label="Sphere line color" type="color"/></label><div class="sphere-buttons"><button id="reset-warp" class="text-button">Reset warp</button><button id="delete-key" class="text-button">Delete current key</button><button id="remove-sphere" class="text-button">Remove sphere</button></div><div class="sphere-legend">T top · B bottom · L left · R right · F front · Back rear</div></div>`;
+    panel.innerHTML = `<div class="sphere-title"><strong>Guide spheres</strong><button id="add-sphere" class="secondary">Add sphere</button></div><select id="sphere-list" aria-label="Select sphere"></select><div id="sphere-controls" hidden><div class="sphere-buttons"><button id="sphere-edit" class="secondary">Select / Edit</button><button id="sphere-visible" class="secondary">Hide</button><button id="key-sphere" class="primary">Key · S</button></div><div class="gizmo-modes">${["move", "rotate", "scale", "warp"].map((mode, i) => `<button data-mode="${mode}" title="${["W", "E", "R", "T"][i]}">${["Move W", "Rotate E", "Scale R", "Free T"][i]}</button>`).join("")}</div><p>Use axis handles or the inner control for free movement/rotation. Click outside to hide controls.</p><div id="sphere-fields"></div><label class="sphere-style">Line thickness<input id="sphere-line" aria-label="Sphere line thickness" type="range" min="1" max="8" step=".5"/><output id="line-output"></output></label><label class="sphere-style">Line color<input id="sphere-color" aria-label="Sphere line color" type="color"/></label><div class="sphere-color-swatches">${["#d3fa84", "#ff7c78", "#a9baff", "#ffffff", "#111111"].map((color) => `<button data-sphere-color="${color}" aria-label="Sphere color ${color}" style="background:${color}"></button>`).join("")}</div><div class="sphere-buttons"><button id="reset-warp" class="text-button">Reset warp</button><button id="delete-key" class="text-button">Delete current key</button><button id="remove-sphere" class="text-button">Remove sphere</button></div><div class="sphere-legend">T top · B bottom · L left · R right · F front · Back rear</div></div>`;
     document.querySelector(".layer-note").replaceWith(panel);
     document.querySelector("#add-sphere").onclick = () => {
       if (!api.ready()) return;
@@ -196,7 +196,7 @@ export class ReviewTools {
     panel.addEventListener("pointerdown", () => {
       if (this.selected()) {
         this.sphereMode = true;
-        api.changed();
+        api.preview();
       }
     });
     document.querySelector("#sphere-edit").onclick = () => {
@@ -230,6 +230,13 @@ export class ReviewTools {
       this.update();
       api.changed();
     };
+    panel.querySelectorAll("[data-sphere-color]").forEach((button) => {
+      button.onclick = () => {
+        this.selected().color = button.dataset.sphereColor;
+        this.update();
+        api.changed();
+      };
+    });
     document.querySelector("#sphere-line").oninput = (e) => {
       this.selected().lineWidth = +e.target.value;
       this.update();
@@ -452,7 +459,7 @@ export class ReviewTools {
     document.querySelector("#timeline-track").style.height =
       `${offset + 133}px`;
     document.querySelector(".timeline-section").style.height =
-      `${offset + 238}px`;
+      `${offset + 288}px`;
     this.status();
     document.querySelector("#ungroup").disabled = !groupAt(p, this.api.frame());
   }
@@ -469,7 +476,7 @@ export class ReviewTools {
     if (!this.sphereMode) return;
     this.sphereMode = false;
     this.update();
-    this.api.changed();
+    this.api.preview();
   }
   destroy() {
     document.removeEventListener("pointerdown", this.outside);
