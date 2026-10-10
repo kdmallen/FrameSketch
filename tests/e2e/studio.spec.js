@@ -717,3 +717,71 @@ test("Pencil pause stops playback without a mouse click and ignores its duplicat
   await button.dispatchEvent('pointerup', { pointerType: 'pen', pointerId: 102, clientX: 0, clientY: 0, button: 0 });
   await expect(page.locator('#video')).toHaveJSProperty('paused', false);
 });
+
+test("video export records visible drawings, omits hidden footage/layers and restores the frame", async ({ page }) => {
+  await sample(page);
+  await page.locator('#color').fill('#ffffff'); await page.locator('#color').dispatchEvent('input');
+  await draw(page);
+  await page.locator('#add-layer').click();
+  await page.locator('#color').fill('#ff0000'); await page.locator('#color').dispatchEvent('input');
+  const r = await page.locator('#drawing-canvas').boundingBox();
+  await page.mouse.move(r.x + r.width * 0.3, r.y + r.height * 0.7); await page.mouse.down();
+  await page.mouse.move(r.x + r.width * 0.7, r.y + r.height * 0.7, {steps: 5}); await page.mouse.up();
+  await page.locator('[data-visible]').first().click();
+  // Hold the visible drawing across the range without any onion skins.
+  await page.locator('.layer-swipe').last().evaluate(el => el.classList.add('revealed'));
+  await page.locator('.layer-overlay-action').last().click();
+  await page.locator('#video-visible').click();
+  await page.locator('#mark-a').click();
+  await page.locator('#touch-scrub').fill('12'); await page.locator('#touch-scrub').dispatchEvent('input');
+  await page.locator('#mark-b').click();
+  await page.locator('#export-video').click();
+  await page.locator('#video-export-range').selectOption('ab');
+  await page.locator('#start-video-export').click();
+  await expect(page.locator('#save-video-export')).toBeVisible({timeout: 15000});
+  await expect(page.locator('#frame-position')).toHaveText('Frame 12 / 191');
+  const pixels = await page.locator('#save-video-export').evaluate(async link => {
+    const video = document.createElement('video'); video.muted = true; video.src = link.href;
+    await new Promise((resolve, reject) => { video.onloadeddata = resolve; video.onerror = reject; });
+    if (video.requestVideoFrameCallback) { const decoded = new Promise(resolve => video.requestVideoFrameCallback(resolve)); await video.play(); await decoded; video.pause(); }
+    const c = document.createElement('canvas'); c.width = video.videoWidth; c.height = video.videoHeight;
+    c.getContext('2d').drawImage(video, 0, 0);
+    const pixel = (x, y) => Array.from(c.getContext('2d').getImageData(Math.floor(x * c.width), Math.floor(y * c.height), 1, 1).data);
+    return { width: c.width, visible: pixel(0.5, 0.45), hidden: pixel(0.5, 0.7), background: pixel(0.1, 0.1) };
+  });
+  expect(pixels.width).toBeGreaterThan(0);
+  expect(pixels.visible[0]).toBeGreaterThan(120);
+  expect(pixels.hidden[0]).toBeLessThan(40);
+  expect(pixels.background[0]).toBeLessThan(40);
+  const download = page.waitForEvent('download'); await page.locator('#save-video-export').click();
+  expect((await download).suggestedFilename()).toMatch(/review\.(mp4|webm)$/);
+});
+
+test("video export preserves visible audio and can be cancelled", async ({ page }) => {
+  await sample(page);
+  await page.locator('#mark-a').click();
+  await page.locator('#touch-scrub').fill('24'); await page.locator('#touch-scrub').dispatchEvent('input');
+  await page.locator('#mark-b').click();
+  await page.locator('#export-video').click();
+  await page.locator('#video-export-range').selectOption('ab');
+  await page.locator('#start-video-export').click();
+  await expect(page.locator('#save-video-export')).toBeVisible({timeout: 15000});
+  const downloading = page.waitForEvent('download'); await page.locator('#save-video-export').click();
+  const downloaded = await downloading, path = '/tmp/framesketch-export-audio.' + downloaded.suggestedFilename().split('.').at(-1);
+  await downloaded.saveAs(path);
+  const { execFileSync, spawnSync } = await import('node:child_process');
+  if (spawnSync('ffprobe', ['-version'], {stdio: 'ignore'}).status === 0) {
+    const info = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type,codec_name', '-of', 'json', path], {encoding: 'utf8'}));
+    expect(info.streams.map(stream => stream.codec_type)).toContain('audio');
+    expect(info.streams.map(stream => stream.codec_type)).toContain('video');
+    if (path.endsWith('.mp4')) expect(info.streams.map(stream => stream.codec_name)).toEqual(expect.arrayContaining(['h264', 'aac']));
+  } else test.info().annotations.push({type: 'note', description: 'FFprobe unavailable; skipped audio codec inspection.'});
+  await page.locator('#modal-close').click();
+  await page.locator('#export-video').click();
+  await page.locator('#start-video-export').click();
+  await expect(page.locator('#video-export-status')).toContainText('Exporting');
+  await page.locator('#modal-close').click();
+  await expect(page.locator('#modal')).toHaveCount(0);
+  await expect(page.locator('#video')).toHaveJSProperty('paused', true);
+  await expect(page.locator('#frame-position')).toHaveText('Frame 24 / 191');
+});

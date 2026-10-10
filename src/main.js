@@ -1,3 +1,4 @@
+import { recordingFormat, exportSegments, composeExportFrame, recordVideo } from "./video-export.js";
 import { onionFrames, onionSettings } from "./onion.js";
 import {
   sourceFrame,
@@ -164,6 +165,7 @@ function persist(immediate = false) {
   saveTimer = setTimeout(run, 350);
 }
 function cleanup() {
+  videoExportController?.abort();
   cancelDrawingTimers?.(); cancelDrawingTimers = null;
   resetVideoOnions();
   sketchImages.clear(); liveSketch = null;
@@ -587,6 +589,7 @@ function renderEditor() {
   });
   mountVideoEdits();
   mountOnionControls();
+  mountVideoExport();
   setupDrawing();
   renderLayers();
   setupTimeline();
@@ -894,6 +897,7 @@ async function togglePlay() {
   }
   const [start, end] = playbackRange(project.a, project.b, frameCount);
   if (frame < start || frame >= end) seek(start);
+  audioContext?.resume().catch(() => {});
   const generation = ++playbackGeneration;
   playing = true;
   $("#play").innerHTML = icon("pause");
@@ -1699,7 +1703,7 @@ function paintStroke(ctx, s, w, h) {
 }
 const sketchImages = new Map();
 let liveSketch = null;
-function draw() {
+function draw({ onions = true } = {}) {
   const canvas = $("#drawing-canvas");
   if (!canvas || !project) return;
   const ctx = canvas.getContext("2d"), w = canvas.width, h = canvas.height;
@@ -1707,11 +1711,11 @@ function draw() {
   const createImage = () => { const image = document.createElement("canvas"); image.width = w; image.height = h; return image; };
   for (const l of [...project.layers].reverse()) {
     if (!l.visible) continue;
-    const signature = currentStroke && sketchImages.get(l.id)?.frame === frame ? sketchImages.get(l.id).signature : JSON.stringify([project.id, frame, w, h, l.overlay, project.sketchOnion,
+    const signature = currentStroke && sketchImages.get(l.id)?.frame === frame ? sketchImages.get(l.id).signature : JSON.stringify([project.id, frame, w, h, l.overlay, onions, project.sketchOnion,
       Object.entries(l.frames).map(([n, strokes]) => [n, strokes.map(s => s.id)])]);
     let cached = sketchImages.get(l.id);
     if (!cached || cached.signature !== signature) {
-      const references = l.overlay ? [] : onionFrames(frame, frameCount, project.sketchOnion, n => drawingFrame(project, n));
+      const references = l.overlay || !onions ? [] : onionFrames(frame, frameCount, project.sketchOnion, n => drawingFrame(project, n));
       const image = createImage(), ghosts = references.length ? createImage() : null;
       const imageCtx = image.getContext("2d"), ghostCtx = ghosts?.getContext("2d");
       for (const ghost of references) {
@@ -1747,7 +1751,7 @@ function draw() {
   }
   ctx.globalAlpha = 1;
   reviewTools?.draw(ctx, w, h);
-  if (!currentStroke) refreshVideoOnions();
+  if (!currentStroke && onions) refreshVideoOnions();
 }
 function undoStroke() {
   const action = undo.pop();
@@ -2263,4 +2267,84 @@ function waitForMedia(media, event) {
   });
 }
 
+let videoExportController = null;
+const videoAudioSources = new WeakMap();
 home();
+
+function mountVideoExport() {
+  const button = document.createElement('button');
+  button.id = 'export-video'; button.className = 'secondary';
+  button.innerHTML = `${icon('download', 16)} Export video`; button.setAttribute('aria-label', 'Export video'); button.title = 'Export video';
+  button.onclick = videoExportDialog;
+  $('.header-actions').prepend(button);
+}
+function videoExportDialog() {
+  if (!mediaLoaded || gif || !video?.src) { toast('Upload a video before exporting.', true); return; }
+  pause();
+  const format = recordingFormat();
+  if (!format || !HTMLCanvasElement.prototype.captureStream) {
+    modal('<h2>Video export unavailable</h2><p>This browser cannot record a canvas video. Try a current version of Safari or Chrome.</p>'); return;
+  }
+  const el = modal(`<h2>Export video</h2><p>Includes visible footage, sketch layers, overlays and spheres. Hidden items, onion skins, gizmos and website controls stay out. With video hidden, export is silent.</p><label>Range<select id="video-export-range"><option value="all">Entire edited video</option>${project.a !== null && project.b !== null ? '<option value="ab">A–B range</option>' : ''}</select></label><label>Resolution<select id="video-export-size"><option value="1280">Up to 1280 pixels</option><option value="1920">Up to 1920 pixels</option></select></label><p class="info-note">Exports ${format.extension.toUpperCase()} in about the clip’s playback time. Keep this page open and your iPad awake.</p><button class="primary full" id="start-video-export">Export video</button><progress id="video-export-progress" max="1" value="0" hidden></progress><p id="video-export-status" role="status"></p><div id="video-export-error" class="form-error" role="alert"></div><a id="save-video-export" class="primary full" hidden>Save exported video</a>`, true);
+  $('#start-video-export').onclick = async () => {
+    const start = $('#start-video-export'), status = $('#video-export-status'), error = $('#video-export-error'), progress = $('#video-export-progress');
+    const originalFrame = frame, originalSphereMode = reviewTools?.sphereMode;
+    const selectedRange = $('#video-export-range').value === 'ab' ? playbackRange(project.a, project.b, frameCount) : [0, frameCount - 1];
+    const segments = exportSegments(project.clipRanges, ...selectedRange);
+    const controller = new AbortController(); videoExportController = controller;
+    let closeAfterExport = false;
+    const close = () => { closeAfterExport = true; controller.abort(); if (!start.disabled) el.remove(); };
+    $('#modal-close').onclick = close;
+    el.onclick = event => { if (event.target === el) close(); };
+    el.onkeydown = event => { if (event.key === 'Escape') close(); };
+    start.disabled = true; error.textContent = ''; progress.hidden = false; status.textContent = 'Preparing export…';
+    $('#video-export-range').disabled = true; $('#video-export-size').disabled = true;
+    let audioOutput = null, audioGain = null, audioSource = null, audioResume = Promise.resolve();
+    try {
+      const canvas = document.createElement('canvas'), [width, height] = mediaDimensions();
+      const crop = project.crop || { x: 0, y: 0, w: 1, h: 1 };
+      const scale = Math.min(1, +$('#video-export-size').value / Math.max(width * crop.w, height * crop.h));
+      canvas.width = Math.max(2, Math.round(width * crop.w * scale / 2) * 2);
+      canvas.height = Math.max(2, Math.round(height * crop.h * scale / 2) * 2);
+      const ctx = canvas.getContext('2d');
+      // Resume audio inside the user's tap before waiting for the initial seek.
+      if (!project.videoHidden && !video.muted && video.volume > 0) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) throw new Error('Audio export is unavailable. Mute audio to export a silent video.');
+        audioContext ||= new AudioCtx();
+        audioResume = audioContext.resume();
+        let source = videoAudioSources.get(video);
+        if (!source) { source = audioContext.createMediaElementSource(video); source.connect(audioContext.destination); videoAudioSources.set(video, source); }
+        audioSource = source;
+        audioOutput = audioContext.createMediaStreamDestination(); audioGain = audioContext.createGain();
+        audioGain.gain.value = video.volume; source.connect(audioGain); audioGain.connect(audioOutput);
+      }
+      const unlocked = video.play();
+      await Promise.all([unlocked, audioResume]);
+      video.pause();
+      if (reviewTools) reviewTools.sphereMode = false;
+      const target = segments[0].start / fps + 0.0001;
+      if (Math.abs(video.currentTime - target) > 0.00001 || video.seeking) {
+        const ready = waitForMedia(video, 'seeked'); video.currentTime = Math.min(target, video.duration - 0.0001); await ready;
+      }
+      if (controller.signal.aborted) throw new Error('Export cancelled.');
+      status.textContent = 'Exporting… 0%';
+      const blob = await recordVideo({
+        video, canvas, fps, segments, format, audioTracks: audioOutput?.stream.getAudioTracks() || [], signal: controller.signal,
+        render: n => { frame = n; draw({ onions: false }); composeExportFrame(ctx, { video, sketches: $('#drawing-canvas'), hideVideo: project.videoHidden, crop }); },
+        progress: value => { progress.value = value; status.textContent = `Exporting… ${Math.round(value * 100)}%`; },
+      });
+      const link = $('#save-video-export'), url = URL.createObjectURL(blob);
+      link.href = url; link.download = `${project.name}-review.${format.extension}`; link.hidden = false;
+      setTimeout(() => URL.revokeObjectURL(url), 10 * 60_000);
+      status.textContent = 'Export ready. Tap Save exported video.';
+    } catch (failure) { error.textContent = failure.message; status.textContent = ''; }
+    finally {
+      video?.pause(); if (audioSource && audioGain) audioSource.disconnect(audioGain); audioGain?.disconnect(); audioOutput?.stream.getTracks().forEach(track => track.stop());
+      if (reviewTools) reviewTools.sphereMode = originalSphereMode;
+      videoExportController = null; start.disabled = false; $('#video-export-range').disabled = false; $('#video-export-size').disabled = false;
+      if (video && mediaLoaded) { seek(originalFrame); draw(); }
+      if (closeAfterExport) el.remove();
+    }
+  };
+}

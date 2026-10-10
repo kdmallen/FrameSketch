@@ -36,6 +36,12 @@ If something fails, note what you clicked and what happened. A screenshot of the
 
 Keyboard: Space play/pause, arrows step, A/B range, M highlight, D brush, F eraser, W move sphere, E rotate sphere, R scale sphere, T free transform/skew, Q or Escape hide gizmo, S key sphere, Ctrl/Command Z undo, Ctrl/Command Shift Z redo.
 
+## Export a video
+
+Click **Export video**, choose the entire edited video or the A–B range, choose a maximum resolution, and press **Export video**. When recording finishes, tap **Save exported video**. Hidden footage, sketch layers and spheres stay out; visible Overlay layers are included. Crop and kept slices are applied. Onion skins, gizmos and website controls are excluded. With footage hidden or audio muted, export is silent; otherwise its audio is included.
+
+The browser records the canvas locally in real time. MP4 with H.264/AAC is selected when supported (including compatible Safari versions); otherwise export uses WebM. Keep the tab foreground and iPad awake. Backgrounding the app stops export with an explanation. Close the dialog to cancel; the original review frame is restored. Encoded files have a 250 MB limit. Recording uses browser playback timing and can have variable frame rate or dropped frames under load; it is not a frame-perfect offline encoder. Physical iPad recording and Save to Files still need device testing. Audio codec verification in browser tests uses FFprobe when available.
+
 ## Onion skin, video visibility, and layer overlays
 
 **Onion skin** opens separate settings for sketches and video frames. Each has an enable toggle, previous/next frame counts (0–12), previous/next colors, and opacity. A frame's opacity is the selected opacity divided by its distance: at 50%, distances 1/2/3 use 50%/25%/16.7%. Sketch onion skins respect layer opacity, visibility and shared frame groups. Ghosts are reference images; edits belong to the current frame.
