@@ -1,6 +1,6 @@
 # FrameSketch
 
-A video review and drawing studio, built as a static web app. Development and testing currently focus on Google Chrome on Windows; iPad Safari validation will follow. No account or server is required. Projects, sketches, and uploaded media are stored in IndexedDB in the current browser.
+A video review and drawing studio, built as a static web app. Development and testing currently focus on Google Chrome on Windows; iPad Safari validation will follow. No account or server is required. Projects, sketches, and uploaded media are stored in IndexedDB in the current browser. Basically a Syncsketch alternative. 
 
 ## Run locally
 
